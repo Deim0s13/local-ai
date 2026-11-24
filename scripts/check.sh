@@ -21,7 +21,7 @@ command -v opencode >/dev/null && ok "OpenCode $(opencode --version 2>/dev/null)
 [[ -f "$HOME/.config/opencode/opencode.json" ]] && ok "OpenCode config in place" || bad "OpenCode config missing (run ./setup.sh)"
 [[ -d "/Applications/Jan.app" ]] && ok "Jan installed" || bad "Jan not installed"
 [[ -f "$HOME_DIR/profile/about-me.md" ]] && ok "Profile at $HOME_DIR/profile/about-me.md" || bad "Profile missing"
-launchctl list 2>/dev/null | grep -q com.local-ai.brew-daily && ok "Daily brew job loaded" || bad "Daily brew job not loaded"
+launchctl print "gui/$(id -u)/com.local-ai.brew-daily" >/dev/null 2>&1 && ok "Daily brew job loaded" || bad "Daily brew job not loaded"
 [[ -n "${OMLX_API_KEY:-}" ]] && ok "OMLX_API_KEY set in this shell" || bad "OMLX_API_KEY not set (open a new terminal after setup)"
 
 exit $fail
