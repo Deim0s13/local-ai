@@ -1,0 +1,7 @@
+# Python deps for the local MCP servers (installed into ~/.local-ai/venv by setup.sh)
+mcp>=2.3,<3
+httpx>=0.28
+trafilatura>=2.0
+markitdown[pdf,docx,pptx,xlsx]>=0.1.9
+numpy>=2.0
+sentence-transformers>=3.0

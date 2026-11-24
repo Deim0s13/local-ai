@@ -51,10 +51,23 @@
     },
     "webfetch": "deny",
     "websearch": "deny",
+    "research_*": "allow",
+    "docs_*": "allow",
     "external_directory": "ask",
     "doom_loop": "ask"
   },
-  "mcp": {},
+  "mcp": {
+    "research": {
+      "type": "local",
+      "command": ["__PY__", "__REPO__/servers/research_server.py"],
+      "enabled": true
+    },
+    "docs": {
+      "type": "local",
+      "command": ["__PY__", "__REPO__/servers/docs_server.py"],
+      "enabled": true
+    }
+  },
   "watcher": {
     "ignore": [".git/**", "**/.env", "**/.env.*", "**/*.key", "**/*.pem"]
   }

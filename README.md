@@ -42,6 +42,27 @@ The oMLX API key is never copied. New shells read it from `~/.omlx/settings.json
 - Profile: edit `~/.local-ai/profile/about-me.md`. OpenCode reads it on every session; Jan is synced on every save (log: `~/.local-ai/logs/profile-sync.log`).
 - Brew log: `~/.local-ai/logs/brew.log`.
 
+## Research and your documents (Phase 2)
+
+Both Jan and OpenCode get two local MCP tool servers, which `./setup.sh` installs and registers:
+
+| Server | Tools | What it does |
+|---|---|---|
+| `research` | `web_search`, `fetch_page` | Searches through your own SearXNG (Podman, 127.0.0.1:8888, no API keys), then reads pages or PDFs |
+| `docs` | `search_docs`, `list_sources` | Searches by meaning over folders you choose, using on-device MiniLM embeddings |
+
+Index a folder, and re-run the same command to refresh it:
+
+```sh
+scripts/rag.sh add ~/Documents/some-folder
+scripts/rag.sh status
+scripts/rag.sh search what did we decide about failover
+```
+
+Supported files: Markdown, text, PDF, Word, PowerPoint, Excel and HTML. The index lives in `~/.local-ai/rag/`, outside the repo. SearXNG's config and secret live in `~/.local-ai/searxng/`.
+
+Then ask Jan or OpenCode things like "search the web for the latest OpenShift AI release and summarise it" or "what do my docs say about ticket enrichment?". Quit and reopen Jan after setup so it loads the new tools.
+
 ## Security rules
 
 This repo is public. It holds code and config templates only.
