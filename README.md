@@ -32,13 +32,14 @@ The oMLX API key is never copied. New shells read it from `~/.omlx/settings.json
 2. Set the base URL to `http://127.0.0.1:8000/v1`.
 3. For the API key, paste the output of `jq -r .auth.api_key ~/.omlx/settings.json`. Jan stores it in its own app data, not here.
 4. Add the chat model id that `./scripts/check.sh` lists.
-5. Paste `~/.local-ai/profile/about-me.md` into the default assistant's instructions.
+5. Jan can't read files from a path, so paste the profile's text itself. Run `pbcopy < ~/.local-ai/profile/about-me.md`, then in Jan open the default assistant's instructions and paste. Do this again whenever you change the profile.
+6. Until Phase 2, leave Jan's built-in MCP or search tools off, so answers come only from the model.
 
 ### Use it
 
 - Chat: open Jan and pick the chat model.
 - Code: run `opencode` in any project folder. Edits and shell commands ask first, and `git push`, `rm` and `sudo` are blocked.
-- Profile: edit `~/.local-ai/profile/about-me.md`. OpenCode reads it on every session.
+- Profile: edit `~/.local-ai/profile/about-me.md`. OpenCode reads it on every session; Jan needs it pasted again (step 5).
 - Brew log: `~/.local-ai/logs/brew.log`.
 
 ## Security rules
