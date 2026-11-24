@@ -32,13 +32,14 @@ The oMLX API key is never copied. New shells read it from `~/.omlx/settings.json
 2. Set the base URL to `http://127.0.0.1:8000/v1`.
 3. For the API key, paste the output of `jq -r .auth.api_key ~/.omlx/settings.json`. Jan stores it in its own app data, not here.
 4. Add the chat model id that `./scripts/check.sh` lists.
-5. Paste `~/.local-ai/profile/about-me.md` into the default assistant's instructions.
+5. Create an assistant for yourself in Jan, then re-run `./setup.sh`. From then on its instructions stay in sync with `~/.local-ai/profile/about-me.md`: every save of that file updates Jan automatically. Quit and reopen Jan to load a change (a notification reminds you). With more than one custom assistant, set `JAN_ASSISTANT` in `~/.local-ai/settings.env`.
+6. Until Phase 2, leave Jan's built-in MCP or search tools off, so answers come only from the model.
 
 ### Use it
 
 - Chat: open Jan and pick the chat model.
 - Code: run `opencode` in any project folder. Edits and shell commands ask first, and `git push`, `rm` and `sudo` are blocked.
-- Profile: edit `~/.local-ai/profile/about-me.md`. OpenCode reads it on every session.
+- Profile: edit `~/.local-ai/profile/about-me.md`. OpenCode reads it on every session; Jan is synced on every save (log: `~/.local-ai/logs/profile-sync.log`).
 - Brew log: `~/.local-ai/logs/brew.log`.
 
 ## Security rules

@@ -70,9 +70,23 @@ sed -e "s|__CODE_MODEL__|$CODE_MODEL|g" \
     "$REPO/config/opencode.template.json" >"$CFG"
 jq empty "$CFG" && echo "Wrote $CFG"
 
+step "Warming up the coding model (first load can take a minute or two)"
+curl -fsS --max-time 600 -H "Authorization: Bearer $OMLX_API_KEY" -H "Content-Type: application/json" \
+  -d "{\"model\":\"$CODE_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with OK\"}],\"max_tokens\":5}" \
+  "$OMLX_URL/v1/chat/completions" >/dev/null && echo "Coding model loaded" || echo "WARN coding model did not answer; check oMLX logs"
+
 step "Jan"
 [[ -d /Applications/Jan.app ]] || brew install --cask jan
 echo "Jan installed. Connect it to oMLX once by hand (see README, 'Connect Jan')."
+
+step "Keep Jan's assistant in sync with your profile"
+[[ -f "$LOCAL_AI_HOME/settings.env" ]] || printf '# Name of the Jan assistant that gets your profile as its instructions\nJAN_ASSISTANT=""\n' >"$LOCAL_AI_HOME/settings.env"
+"$REPO/scripts/sync-jan-profile.sh" || echo "WARN Jan sync did not run; see message above"
+PLIST="$HOME/Library/LaunchAgents/com.local-ai.profile-sync.plist"
+sed -e "s|__REPO__|$REPO|g" -e "s|__PROFILE__|$LOCAL_AI_HOME/profile/about-me.md|g" "$REPO/launchd/com.local-ai.profile-sync.plist" >"$PLIST"
+launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+echo "Loaded. Saving about-me.md now updates Jan automatically."
 
 step "Daily brew update + upgrade --greedy at 09:30"
 PLIST="$HOME/Library/LaunchAgents/com.local-ai.brew-daily.plist"
