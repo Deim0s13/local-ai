@@ -1,0 +1,60 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "local/__CODE_MODEL__",
+  "small_model": "local/__CHAT_MODEL__",
+  "autoupdate": false,
+  "share": "disabled",
+  "snapshot": true,
+  "enabled_providers": ["local"],
+  "instructions": ["__LOCAL_AI_HOME__/profile/about-me.md"],
+  "provider": {
+    "local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "oMLX (local)",
+      "options": {
+        "baseURL": "http://127.0.0.1:8000/v1",
+        "apiKey": "{env:OMLX_API_KEY}"
+      },
+      "models": {
+        "__CODE_MODEL__": {
+          "name": "Coding model",
+          "limit": { "context": 65536, "output": 8192 }
+        },
+        "__CHAT_MODEL__": {
+          "name": "Chat model",
+          "limit": { "context": 65536, "output": 8192 }
+        }
+      }
+    }
+  },
+  "permission": {
+    "*": "ask",
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow",
+      "**/*.key": "deny",
+      "**/*.pem": "deny"
+    },
+    "edit": "ask",
+    "bash": {
+      "*": "ask",
+      "git push*": "deny",
+      "git reset*": "deny",
+      "git clean*": "deny",
+      "rm *": "deny",
+      "sudo *": "deny",
+      "ssh *": "deny",
+      "scp *": "deny"
+    },
+    "webfetch": "deny",
+    "websearch": "deny",
+    "external_directory": "ask",
+    "doom_loop": "ask"
+  },
+  "mcp": {},
+  "watcher": {
+    "ignore": [".git/**", "**/.env", "**/.env.*", "**/*.key", "**/*.pem"]
+  }
+}
