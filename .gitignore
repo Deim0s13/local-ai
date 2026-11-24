@@ -1,0 +1,97 @@
+# local-ai .gitignore
+# Rule: this repo is public. No secrets and no personal data, ever.
+# Secrets come from Bitwarden at run time; personal data lives in ~/.local-ai/
+
+# --- Secrets and credentials ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.csr
+id_rsa*
+id_ed25519*
+*.keychain
+*.kdbx
+credentials*.json
+client_secret*.json
+service-account*.json
+token*.json
+*.token
+.netrc
+.npmrc
+.pypirc
+bw-session*
+.vault-token
+*secret*
+!*secret*.example
+!*secret*.md
+
+# --- Personal data (belongs in ~/.local-ai/, never here) ---
+data/
+profile/
+memory/
+rag/
+vectorstore/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.mbox
+*.eml
+*.ics
+briefs/
+output/
+
+# --- Eval runs (may contain prompts and personal context) ---
+evals/results/
+evals/runs/
+*.jsonl
+
+# --- Models, weights and caches ---
+models/
+*.safetensors
+*.gguf
+*.bin
+*.npz
+*.mlpackage
+.cache/
+.huggingface/
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# --- Node ---
+node_modules/
+
+# --- Local tool state ---
+.opencode/
+.jan/
+
+# --- OS and editors ---
+.DS_Store
+.AppleDouble
+._*
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*~
