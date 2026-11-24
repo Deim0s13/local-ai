@@ -24,4 +24,14 @@ command -v opencode >/dev/null && ok "OpenCode $(opencode --version 2>/dev/null)
 launchctl print "gui/$(id -u)/com.local-ai.brew-daily" >/dev/null 2>&1 && ok "Daily brew job loaded" || bad "Daily brew job not loaded"
 [[ -n "${OMLX_API_KEY:-}" ]] && ok "OMLX_API_KEY set in this shell" || bad "OMLX_API_KEY not set (open a new terminal after setup)"
 
+PY="$HOME_DIR/venv/bin/python"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+[[ -x "$PY" ]] && "$PY" -c "import mcp, sentence_transformers" 2>/dev/null && ok "MCP server env ready" || bad "MCP server env missing (run ./setup.sh)"
+curl -fsS --max-time 3 "http://127.0.0.1:8888/search?q=test&format=json" >/dev/null 2>&1 && ok "SearXNG answering on 127.0.0.1:8888" || bad "SearXNG not answering (scripts/searxng.sh start)"
+if [[ -x "$PY" ]]; then
+  chunks="$("$PY" "$REPO/servers/docs_server.py" status 2>/dev/null | jq -r .chunks)"
+  [[ "${chunks:-0}" -gt 0 ]] && ok "Docs index: $chunks passages" || bad "Docs index empty (scripts/rag.sh add <folder>)"
+fi
+jq -e '.mcpServers["local-research"].active and .mcpServers["local-docs"].active' "$HOME/Library/Application Support/Jan/data/mcp_config.json" >/dev/null 2>&1 && ok "Jan has the research and docs tools" || bad "Jan MCP servers not registered (scripts/jan-mcp.sh)"
+
 exit $fail

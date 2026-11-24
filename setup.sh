@@ -59,6 +59,16 @@ CHAT_MODEL="${CHAT_MODEL:-$(pick '35b-a3b')}"
 echo "Coding model: $CODE_MODEL"
 echo "Chat model:   $CHAT_MODEL"
 
+step "Python env for the MCP servers ($LOCAL_AI_HOME/venv)"
+command -v uv >/dev/null || brew install uv
+[[ -x "$LOCAL_AI_HOME/venv/bin/python" ]] || uv venv --python 3.12 "$LOCAL_AI_HOME/venv"
+uv pip install --python "$LOCAL_AI_HOME/venv/bin/python" -q -r "$REPO/requirements.txt"
+PY="$LOCAL_AI_HOME/venv/bin/python"
+echo "Installed MCP server dependencies"
+
+step "SearXNG web search (Podman, 127.0.0.1:8888)"
+"$REPO/scripts/searxng.sh" start || echo "WARN SearXNG not running; web search will fail until it is (scripts/searxng.sh start)"
+
 step "OpenCode"
 command -v opencode >/dev/null || brew install opencode
 mkdir -p "$HOME/.config/opencode"
@@ -67,6 +77,8 @@ CFG="$HOME/.config/opencode/opencode.json"
 sed -e "s|__CODE_MODEL__|$CODE_MODEL|g" \
     -e "s|__CHAT_MODEL__|$CHAT_MODEL|g" \
     -e "s|__LOCAL_AI_HOME__|$LOCAL_AI_HOME|g" \
+    -e "s|__PY__|$PY|g" \
+    -e "s|__REPO__|$REPO|g" \
     "$REPO/config/opencode.template.json" >"$CFG"
 jq empty "$CFG" && echo "Wrote $CFG"
 
@@ -78,6 +90,7 @@ curl -fsS --max-time 600 -H "Authorization: Bearer $OMLX_API_KEY" -H "Content-Ty
 step "Jan"
 [[ -d /Applications/Jan.app ]] || brew install --cask jan
 echo "Jan installed. Connect it to oMLX once by hand (see README, 'Connect Jan')."
+"$REPO/scripts/jan-mcp.sh"
 
 step "Keep Jan's assistant in sync with your profile"
 [[ -f "$LOCAL_AI_HOME/settings.env" ]] || printf '# Name of the Jan assistant that gets your profile as its instructions\nJAN_ASSISTANT=""\n' >"$LOCAL_AI_HOME/settings.env"
