@@ -20,7 +20,7 @@ cd ~/Projects/local-ai
 - starts oMLX and picks the coding and chat models from what it serves
 - installs OpenCode and writes `~/.config/opencode/opencode.json` from `config/opencode.template.json`
 - installs Jan
-- loads a launchd job that runs `brew update` and `brew upgrade --greedy` daily at 07:30
+- loads a launchd job that runs `brew update` and `brew upgrade --greedy` daily at 09:30 (if the Mac is asleep then, it runs once on wake)
 
 To choose models yourself, run `CODE_MODEL=<id> CHAT_MODEL=<id> ./setup.sh`, using ids from `./scripts/check.sh`.
 

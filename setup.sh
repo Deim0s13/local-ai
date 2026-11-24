@@ -74,7 +74,7 @@ step "Jan"
 [[ -d /Applications/Jan.app ]] || brew install --cask jan
 echo "Jan installed. Connect it to oMLX once by hand (see README, 'Connect Jan')."
 
-step "Daily brew update + upgrade --greedy at 07:30"
+step "Daily brew update + upgrade --greedy at 09:30"
 PLIST="$HOME/Library/LaunchAgents/com.local-ai.brew-daily.plist"
 sed "s|__REPO__|$REPO|g" "$REPO/launchd/com.local-ai.brew-daily.plist" >"$PLIST"
 launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true

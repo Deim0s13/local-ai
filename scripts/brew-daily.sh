@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Daily Homebrew update and greedy upgrade, run by launchd at 07:30.
+# Daily Homebrew update and greedy upgrade, run by launchd at 09:30.
 # - Answers "yes" to any confirmation prompt, never waits for input.
 # - Apps whose installers need your password can't be done unattended:
 #   they fail fast, are listed in the summary, and you get a notification.
