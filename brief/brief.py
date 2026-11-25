@@ -4,8 +4,9 @@
   python brief.py auto            what launchd calls at 09:30 (skips if today's exists)
 
 Writes, outside the repo:
-  ~/.local-ai/briefs/<YYYY-MM-DD>.md         Markdown, indexed for search_docs
-  ~/.local-ai/briefs/.web/<YYYY-MM-DD>.html  the page the notification opens
+  ~/.local-ai/briefs/latest.html             today's brief + the past week (pin this tab)
+  ~/.local-ai/briefs/pages/<YYYY-MM-DD>.html each day's page, kept 30 days
+  ~/.local-ai/briefs/notes/<YYYY-MM-DD>.md   Markdown, kept, indexed for search_docs
 """
 from __future__ import annotations
 
@@ -29,7 +30,10 @@ sys.path.insert(0, str(REPO / "servers"))
 CONFIG = json.loads((REPO / "config" / "brief.json").read_text())
 HOME = Path(os.environ.get("LOCAL_AI_HOME", Path.home() / ".local-ai")).expanduser()
 BRIEFS = HOME / "briefs"
-WEB = BRIEFS / ".web"  # hidden, so the docs index only picks up the Markdown
+PAGES = BRIEFS / "pages"
+NOTES = BRIEFS / "notes"  # only this folder goes into the docs index
+LATEST = BRIEFS / "latest.html"
+KEEP_PAGES_DAYS = 30
 PROFILE = HOME / "profile" / "about-me.md"
 BREW_SUMMARY = HOME / "logs" / "brew-summary.md"
 SCOUT_LOCK = HOME / "evals" / ".scout.lock"
@@ -341,7 +345,7 @@ def render_md(day: dt.date, top: str, sections: list[dict], brew: str, model_ok:
     return "\n".join(out) + "\n"
 
 
-def md_to_html(md: str, title: str) -> str:
+def md_to_html(md: str, title: str, nav: list[tuple[str, str, bool]] = ()) -> str:
     def inline(s: str) -> str:
         s = html.escape(s)
         s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
@@ -374,22 +378,40 @@ def md_to_html(md: str, title: str) -> str:
             body.append(f"<p>{inline(line)}</p>")
     if in_list:
         body.append("</ul>")
+    side = "".join(f'<a href="{href}"{" class=on" if on else ""}>{html.escape(label)}</a>'
+                   for label, href, on in nav)
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{html.escape(title)}</title>
+<meta http-equiv="refresh" content="3600">
+<script>
+// a pinned tab picks up a new brief when you come back to it
+const loaded = Date.now();
+addEventListener("visibilitychange", () => {{
+  if (document.visibilityState === "visible" && Date.now() - loaded > 10 * 60 * 1000) location.reload();
+}});
+</script>
 <style>
 :root {{ --bg:#fbfaf7; --fg:#1d1d1f; --muted:#6e6e73; --accent:#b4231f; --line:#e5e3dd; }}
 @media (prefers-color-scheme: dark) {{ :root {{ --bg:#17171a; --fg:#ececf0; --muted:#9a9aa2; --accent:#ff6b5e; --line:#2c2c31; }} }}
 body {{ background:var(--bg); color:var(--fg); font:17px/1.55 -apple-system, system-ui, sans-serif; margin:0; }}
-main {{ max-width:720px; margin:0 auto; padding:32px 16px 64px; }}
+.wrap {{ display:flex; gap:40px; max-width:980px; margin:0 auto; padding:32px 16px 64px; }}
+nav {{ flex:0 0 150px; position:sticky; top:32px; align-self:flex-start; font-size:14px; }}
+nav b {{ display:block; color:var(--muted); font-weight:600; margin-bottom:8px; }}
+nav a {{ display:block; padding:4px 0; text-decoration:none; }} nav a.on {{ color:var(--accent); font-weight:600; }}
+main {{ flex:1; min-width:0; max-width:720px; }}
+@media (max-width:760px) {{ .wrap {{ flex-direction:column; gap:12px; }}
+  nav {{ position:static; display:flex; flex-wrap:wrap; gap:4px 14px; }} nav b {{ width:100%; margin:0; }} }}
 h1 {{ font-size:28px; margin:0 0 12px; }}
 h2 {{ font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(--accent);
       border-top:1px solid var(--line); padding-top:20px; margin-top:28px; }}
 ul {{ padding-left:20px; }} li {{ margin:0 0 12px; }}
 a {{ color:var(--muted); }} em {{ color:var(--muted); font-size:14px; }}
 pre {{ background:var(--line); padding:10px 12px; border-radius:6px; overflow-x:auto; }}
-</style></head><body><main>
+</style></head><body><div class="wrap">
+<nav><b>Past week</b>{side}</nav>
+<main>
 {chr(10).join(body)}
-</main></body></html>
+</main></div></body></html>
 """
 
 
@@ -408,9 +430,54 @@ def notify(page: Path, text: str) -> None:
         subprocess.run(["/usr/bin/open", str(page)], capture_output=True)
 
 
+def tidy() -> None:
+    """Move files from the first layout, and drop day pages older than 30 days.
+    The Markdown copies are kept for search."""
+    NOTES.mkdir(parents=True, exist_ok=True)
+    PAGES.mkdir(parents=True, exist_ok=True)
+    moved = False
+    for f in BRIEFS.glob("20*.md"):
+        f.rename(NOTES / f.name)
+        moved = True
+    old_web = BRIEFS / ".web"
+    if old_web.is_dir():
+        for f in old_web.glob("20*.html"):
+            f.rename(PAGES / f.name)
+        try:
+            old_web.rmdir()
+        except OSError:
+            pass
+    if moved:  # the whole briefs folder was indexed before; now only notes/
+        subprocess.run([sys.executable, str(REPO / "servers" / "docs_server.py"), "remove", str(BRIEFS)],
+                       capture_output=True, timeout=120)
+    cutoff = dt.date.today() - dt.timedelta(days=KEEP_PAGES_DAYS)
+    for f in PAGES.glob("20*.html"):
+        try:
+            if dt.date.fromisoformat(f.stem) < cutoff:
+                f.unlink()
+        except ValueError:
+            pass
+
+
+def write_pages(day: dt.date, md: str) -> None:
+    days = sorted((dt.date.fromisoformat(f.stem) for f in PAGES.glob("20*.html")
+                   if re.fullmatch(r"\d{4}-\d{2}-\d{2}", f.stem)), reverse=True)
+    week = sorted({day, *[d for d in days if d >= day - dt.timedelta(days=6)]}, reverse=True)
+
+    def nav(prefix: str):
+        return [(f"{d:%a %d %b}", f"{prefix}{d}.html", d == day)
+                for d in week]
+
+    title = f"Morning brief {day}"
+    (PAGES / f"{day}.html").write_text(md_to_html(md, title, nav("")))
+    # latest.html sits one folder up, so its links point into pages/
+    latest_nav = [(lbl, href, on) for lbl, href, on in nav("pages/")]
+    LATEST.write_text(md_to_html(md, title, latest_nav))
+
+
 def index_briefs() -> None:
     try:
-        subprocess.run([sys.executable, str(REPO / "servers" / "docs_server.py"), "add", str(BRIEFS)],
+        subprocess.run([sys.executable, str(REPO / "servers" / "docs_server.py"), "add", str(NOTES)],
                        capture_output=True, timeout=600)
     except Exception as e:
         log(f"indexing failed: {e}")
@@ -419,11 +486,11 @@ def index_briefs() -> None:
 # ---------------------------------------------------------------- main
 def run(force: bool = False) -> int:
     day = dt.date.today()
-    md_path, page = BRIEFS / f"{day}.md", WEB / f"{day}.html"
+    tidy()
+    md_path = NOTES / f"{day}.md"
     if md_path.exists() and not force:
         log(f"today's brief already exists: {md_path}")
         return 0
-    WEB.mkdir(parents=True, exist_ok=True)
     since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=CONFIG.get("hours", 30))
     model_ok = ensure_model()
     if not model_ok:
@@ -450,13 +517,13 @@ def run(force: bool = False) -> int:
     brew = brew_needs_you()
     md = render_md(day, top, sections, brew, model_ok)
     md_path.write_text(md)
-    page.write_text(md_to_html(md, f"Morning brief {day}"))
-    log(f"wrote {md_path} and {page}")
+    write_pages(day, md)
+    log(f"wrote {md_path} and {LATEST}")
     index_briefs()
     msg = (top.split(". ")[0][:150] if top else "Your news is ready.")
     if brew:
         msg = "Brew needs you. " + msg
-    notify(page, msg)
+    notify(LATEST, msg)
     return 0
 
 
