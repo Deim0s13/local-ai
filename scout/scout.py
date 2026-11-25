@@ -104,6 +104,17 @@ def seen_models() -> set[str]:
     return set(json.loads(f.read_text())) if f.exists() else set()
 
 
+SKIPPED: list[dict] = []  # models passed over this run, with why (shown in the brief)
+
+
+def note_skip(d: Path, repo: str, reason: str) -> None:
+    f = d / "skipped.json"
+    items = json.loads(f.read_text()) if f.exists() else []
+    if not any(x["repo"] == repo for x in items):
+        items.append({"repo": repo, "reason": reason})
+    f.write_text(json.dumps(items, indent=2))
+
+
 def discover() -> list[dict]:
     since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=CONFIG["lookback_days"])
     skip = seen_models() | set(CONFIG["champions"].values())
@@ -142,10 +153,12 @@ def discover() -> list[dict]:
             continue
         if gb < CONFIG.get("min_model_gb", 0):
             log(f"  skip {m['repo']}: {gb} GB is too small to challenge your champions")
+            SKIPPED.append({"repo": m["repo"], "reason": f"too small ({gb} GB)"})
             continue
         ok, arch = arch_supported(m["repo"])
         if not ok:
             log(f"  skip {m['repo']}: mlx-lm can't run '{arch}' models yet (setup.sh upgrades it)")
+            SKIPPED.append({"repo": m["repo"], "reason": f"mlx-lm can't run '{arch}' models yet"})
             continue
         m["size_gb"] = gb
         fits.append(m)
@@ -353,6 +366,7 @@ def write_scorecard(d: Path, candidates: list[dict], scores: dict, judged: bool)
     if not candidates:
         lines += ["No new MLX models that fit this month. Champions stay.", ""]
     wins = []
+    rows, win_items = [], []
     lines += ["| Model | Role | Overall | Coding | Research | Architecture | Format | tok/s | Peak GB | Verdict |",
               "|---|---|---|---|---|---|---|---|---|---|"]
     for repo, s in scores.items():
@@ -372,11 +386,14 @@ def write_scorecard(d: Path, candidates: list[dict], scores: dict, judged: bool)
                 parts.append(f"{'WIN ' if won else ''}vs {r} champion: {why}")
                 if won:
                     wins.append(f"{repo} beats the {r} champion ({why})")
+                    win_items.append({"repo": repo, "role": r, "why": why, "id": omlx_id(repo)})
             v = "; ".join(parts)
             tag = m["role"]
         if s.get("unjudged"):
             v = (v + "; " if v else "") + f"judge could not score {len(s['unjudged'])} task(s)"
         c = s["categories"]
+        rows.append({"repo": repo, "tag": tag, "overall": s["overall"], "categories": c,
+                     "tps": s["median_tps"], "memory_gb": s["peak_memory_gb"], "verdict": v})
         lines.append(f"| {repo} | {tag} | {s['overall']} | {c.get('coding', '')} | {c.get('research', '')} | "
                      f"{c.get('architecture', '')} | {c.get('format', '')} | {s['median_tps']} | "
                      f"{s['peak_memory_gb']} | {v} |")
@@ -389,6 +406,10 @@ def write_scorecard(d: Path, candidates: list[dict], scores: dict, judged: bool)
             "", "To switch, download it in oMLX, then run `CODE_MODEL=<id> ./setup.sh` or "
                 "`CHAT_MODEL=<id> ./setup.sh` with the id oMLX shows, and update `config/scout.json`."]
     (d / "scorecard.md").write_text("\n".join(lines) + "\n")
+    skipped = json.loads((d / "skipped.json").read_text()) if (d / "skipped.json").exists() else []
+    (d / "summary.json").write_text(json.dumps(
+        {"month": d.name, "wins": win_items, "rows": rows, "skipped": skipped, "judged": judged,
+         "candidates": len(candidates)}, indent=2))
     return wins
 
 
@@ -443,6 +464,8 @@ def run(force_now: bool = False, watch: bool = False) -> int:
             log(str(e))
             return 1
         (d / "candidates.json").write_text(json.dumps(cands, indent=2))
+        for x in SKIPPED:
+            note_skip(d, x["repo"], x["reason"])
     for c in cands:
         log(f"  candidate {c['repo']} ({c['role']}, {c['size_gb']} GB)")
     if not cands:
@@ -487,6 +510,7 @@ def run(force_now: bool = False, watch: bool = False) -> int:
                 break
             if proc.returncode != 0:
                 log(f"  failed: {repo}")
+                note_skip(d, repo, "failed to load or run")
     finally:
         if was_running:
             subprocess.run([str(OMLX), "start"], capture_output=True)
