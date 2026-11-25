@@ -19,6 +19,10 @@ import sys
 import time
 from email.utils import parsedate_to_datetime
 from pathlib import Path
+import warnings
+
+# urllib3 warns about SOCKS when a proxy variable is set; it doesn't matter here
+warnings.filterwarnings("ignore", message=".*SOCKS support.*")
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "servers"))
@@ -33,7 +37,8 @@ OMLX = Path.home() / ".omlx" / "bin" / "omlx"
 OMLX_SETTINGS = Path.home() / ".omlx" / "settings.json"
 OMLX_URL = "http://127.0.0.1:8000"
 SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://127.0.0.1:8888")
-UA = "Mozilla/5.0 (Macintosh; local-ai morning brief)"
+UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+      "(KHTML, like Gecko) Version/18.0 Safari/605.1.15")
 
 
 def log(msg: str) -> None:
@@ -146,7 +151,8 @@ def read_feed(url: str, since: dt.datetime) -> list[dict]:
         r = httpx.get(url, headers={"User-Agent": UA}, timeout=20, follow_redirects=True)
         r.raise_for_status()
     except Exception as e:
-        log(f"feed failed {url}: {type(e).__name__}")
+        code = getattr(getattr(e, "response", None), "status_code", "")
+        log(f"feed failed {url}: {type(e).__name__} {code}".rstrip())
         return []
     feed = feedparser.parse(r.content)
     source = _clean(feed.feed.get("title", "")) or re.sub(r"^www\.", "", httpx.URL(url).host)
@@ -219,6 +225,38 @@ def add_text(items: list[dict], top: int) -> None:
             it["text"] = ""
 
 
+def parse_points(txt: str) -> list[dict]:
+    """Pull [{headline, summary, refs}] out of a model reply, tolerating code fences,
+    a wrapping object ({"stories": [...]}), extra prose or a cut-off ending."""
+    txt = re.sub(r"```(?:json)?", "", txt or "")
+    candidates = []
+    for m in re.finditer(r"[\[{]", txt):
+        try:
+            candidates.append(json.JSONDecoder().raw_decode(txt[m.start():])[0])
+            break
+        except ValueError:
+            continue
+    data = candidates[0] if candidates else None
+    if isinstance(data, dict):
+        data = next((v for v in data.values()
+                     if isinstance(v, list) and v and isinstance(v[0], dict)), [data])
+    if not isinstance(data, list):  # cut off: salvage the complete objects
+        data = []
+        for m in re.finditer(r"\{[^{}]*\}", txt):
+            try:
+                data.append(json.loads(m.group(0)))
+            except ValueError:
+                pass
+    out = []
+    for d in data:
+        if isinstance(d, dict) and d.get("headline"):
+            refs = d.get("refs") or []
+            refs = [int(r) for r in (refs if isinstance(refs, list) else [refs])
+                    if str(r).strip("[] ").isdigit()]
+            out.append({"headline": str(d["headline"]), "summary": str(d.get("summary", "")), "refs": refs})
+    return out
+
+
 def summarise(section: str, items: list[dict]) -> list[dict]:
     """Returns [{headline, summary, refs:[n]}]; falls back to plain headlines."""
     lines = []
@@ -233,14 +271,19 @@ def summarise(section: str, items: list[dict]) -> list[dict]:
         'Reply with only JSON: [{"headline": "...", "summary": "...", "refs": [1, 2]}]\n\n'
         + "\n\n".join(lines)
     )
-    try:
-        txt = ask_model(prompt)
-        data = json.loads(re.search(r"\[.*\]", txt, re.S).group(0))
-        out = [d for d in data if isinstance(d, dict) and d.get("headline")]
+    txt = ""
+    for attempt in (1, 2):  # one retry with a firmer nudge and more room
+        try:
+            txt = ask_model(prompt if attempt == 1 else
+                            prompt + "\n\nStart your reply with [ and end it with ]. No other text.",
+                            max_tokens=1200 * attempt)
+        except Exception as e:
+            log(f"model call failed for {section}: {type(e).__name__}: {e}")
+            break
+        out = parse_points(txt)
         if out:
             return out[:5]
-    except Exception as e:
-        log(f"summary failed for {section}: {type(e).__name__}: {e}")
+    log(f"summary failed for {section}; using headlines. Model said: {txt[:200]!r}")
     return [{"headline": it["title"], "summary": "", "refs": [i]} for i, it in enumerate(items[:5], 1)]
 
 
