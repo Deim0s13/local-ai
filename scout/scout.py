@@ -31,6 +31,7 @@ OMLX = Path.home() / ".omlx" / "bin" / "omlx"
 OMLX_SETTINGS = Path.home() / ".omlx" / "settings.json"
 OMLX_URL = "http://127.0.0.1:8000"
 HF_API = "https://huggingface.co/api"
+os.environ.setdefault("HF_HUB_VERBOSITY", "error")  # no "unauthenticated requests" nag; no token needed
 SYSTEM = "You are a concise, practical assistant for an enterprise architect. Use plain language."
 
 
@@ -66,6 +67,32 @@ def model_size_gb(repo: str) -> float | None:
     total = sum(s.get("size") or 0 for s in info.get("siblings", [])
                 if s.get("rfilename", "").endswith(".safetensors"))
     return round(total / 1e9, 1) if total else None
+
+
+def arch_supported(repo: str) -> tuple[bool, str]:
+    """Does the installed mlx-lm know this model's architecture? Checked before downloading."""
+    try:
+        import importlib.util
+
+        import mlx_lm  # noqa: F401
+    except Exception:
+        return True, ""  # can't tell here (not on the Mac); gen will find out
+    try:
+        import httpx
+
+        r = httpx.get(f"https://huggingface.co/{repo}/resolve/main/config.json", timeout=20,
+                      follow_redirects=True)
+        r.raise_for_status()
+        mt = r.json().get("model_type", "")
+    except Exception:
+        return True, ""
+    try:
+        from mlx_lm.utils import MODEL_REMAPPING
+        mt = MODEL_REMAPPING.get(mt, mt)
+    except Exception:
+        pass
+    ok = importlib.util.find_spec(f"mlx_lm.models.{mt.replace('-', '_')}") is not None
+    return ok, mt
 
 
 def role_of(repo: str) -> str:
@@ -113,6 +140,13 @@ def discover() -> list[dict]:
         gb = model_size_gb(m["repo"])
         if gb is None or gb > CONFIG["max_model_gb"]:
             continue
+        if gb < CONFIG.get("min_model_gb", 0):
+            log(f"  skip {m['repo']}: {gb} GB is too small to challenge your champions")
+            continue
+        ok, arch = arch_supported(m["repo"])
+        if not ok:
+            log(f"  skip {m['repo']}: mlx-lm can't run '{arch}' models yet (setup.sh upgrades it)")
+            continue
         m["size_gb"] = gb
         fits.append(m)
     return fits
@@ -120,7 +154,7 @@ def discover() -> list[dict]:
 
 # ---------------------------------------------------------------- generate (one model per process)
 def strip_think(text: str) -> str:
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+    return re.sub(r"<think>.*?(</think>|$)", "", text or "", flags=re.S).strip()
 
 
 def gen(repo: str, out: Path) -> int:
@@ -185,28 +219,43 @@ def run_tests(code: str, tests: str) -> float:
             return 0.0
 
 
+def parse_score(txt: str) -> int | None:
+    """The 1-5 score from a judge reply, whatever wraps it (JSON, prose, fences)."""
+    m = (re.search(r'"?score"?\s*[:=]\s*["<]?([1-5])\b(?!\s*-)', txt, re.I)
+         or re.search(r"\b([1-5])\s*(?:/|out of)\s*5\b", txt)
+         or re.fullmatch(r"\s*([1-5])\s*", txt))
+    return int(m.group(1)) if m else None
+
+
 def judge(task: dict, answer: str, judge_model: str, key: str) -> float | None:
     import httpx
 
     prompt = (
         "You are grading an answer for an experienced enterprise architect audience.\n"
-        "Score 1-5 for accuracy, practical usefulness, structure and plain, concise language "
+        "Score it from 1 to 5 for accuracy, practical usefulness, structure and plain, concise language "
         "(5 = excellent, would send as is; 1 = wrong or unusable).\n"
-        'Reply with only JSON: {"score": <1-5>, "reason": "<one sentence>"}\n\n'
+        'Reply with one line of JSON and nothing else, for example: {"score": 4, "reason": "clear but misses costs"}\n\n'
         f"TASK:\n{task['prompt']}\n\nANSWER:\n{answer[:6000]}"
     )
-    try:
-        r = httpx.post(f"{OMLX_URL}/v1/chat/completions", timeout=300,
-                       headers={"Authorization": f"Bearer {key}"},
-                       json={"model": judge_model, "temperature": 0, "max_tokens": 200,
-                             "messages": [{"role": "user", "content": prompt}]})
-        r.raise_for_status()
-        txt = strip_think(r.json()["choices"][0]["message"]["content"])
-        s = int(json.loads(re.search(r"\{.*\}", txt, re.S).group(0))["score"])
-        return (min(max(s, 1), 5) - 1) / 4
-    except Exception as e:
-        log(f"judge failed on {task['id']}: {e}")
-        return None
+    txt = ""
+    for attempt in (1, 2):
+        try:
+            r = httpx.post(f"{OMLX_URL}/v1/chat/completions", timeout=300,
+                           headers={"Authorization": f"Bearer {key}"} if key else {},
+                           json={"model": judge_model, "temperature": 0, "max_tokens": 200 * attempt,
+                                 "chat_template_kwargs": {"enable_thinking": False},
+                                 "messages": [{"role": "user", "content": prompt if attempt == 1 else
+                                               prompt + "\n\nAnswer with only the score, a digit from 1 to 5."}]})
+            r.raise_for_status()
+            txt = strip_think(r.json()["choices"][0]["message"]["content"] or "")
+        except Exception as e:
+            log(f"judge call failed on {task['id']}: {type(e).__name__}: {e}")
+            return None
+        s = parse_score(txt)
+        if s is not None:
+            return (s - 1) / 4
+    log(f"judge unreadable on {task['id']}: {txt[:120]!r}")
+    return None
 
 
 def score_task(task: dict, out: str, judge_fn=None) -> float:
@@ -238,6 +287,15 @@ def score_task(task: dict, out: str, judge_fn=None) -> float:
 
 def score_model(gen_json: dict, judge_fn=None) -> dict:
     by_id = {r["id"]: r for r in gen_json["results"]}
+    missed = []
+    if judge_fn:
+        inner = judge_fn
+
+        def judge_fn(task, out):  # noqa: F811  counts tasks the judge couldn't score
+            j = inner(task, out)
+            if j is None:
+                missed.append(task["id"])
+            return j
     cats: dict[str, list[float]] = {}
     per = {}
     for task in TASKS:
@@ -248,7 +306,7 @@ def score_model(gen_json: dict, judge_fn=None) -> dict:
     overall = round(100 * sum(sum(v) for v in cats.values()) / len(TASKS), 1)
     return {"repo": gen_json["repo"], "overall": overall, "categories": cat_scores, "tasks": per,
             "median_tps": gen_json["median_tps"], "peak_memory_gb": gen_json["peak_memory_gb"],
-            "load_seconds": gen_json["load_seconds"]}
+            "load_seconds": gen_json["load_seconds"], "unjudged": missed}
 
 
 ROLE_CATEGORY = {"code": "coding", "chat": "architecture"}
@@ -303,13 +361,21 @@ def write_scorecard(d: Path, candidates: list[dict], scores: dict, judged: bool)
         v = ""
         if not role:
             m = next((c for c in candidates if c["repo"] == repo), {"role": role_of(repo)})
-            champ = scores.get(champs[m["role"]])
-            if champ:
-                won, why = verdict(s, champ, m["role"])
-                v = ("WIN: " if won else "") + why
-                tag = m["role"]
+            # coder models compete for coding; general models for both jobs
+            vs = ["code"] if m["role"] == "code" else ["chat", "code"]
+            parts = []
+            for r in vs:
+                champ = scores.get(champs[r])
+                if not champ:
+                    continue
+                won, why = verdict(s, champ, r)
+                parts.append(f"{'WIN ' if won else ''}vs {r} champion: {why}")
                 if won:
-                    wins.append(f"{repo} beats the {m['role']} champion ({why})")
+                    wins.append(f"{repo} beats the {r} champion ({why})")
+            v = "; ".join(parts)
+            tag = m["role"]
+        if s.get("unjudged"):
+            v = (v + "; " if v else "") + f"judge could not score {len(s['unjudged'])} task(s)"
         c = s["categories"]
         lines.append(f"| {repo} | {tag} | {s['overall']} | {c.get('coding', '')} | {c.get('research', '')} | "
                      f"{c.get('architecture', '')} | {c.get('format', '')} | {s['median_tps']} | "
@@ -384,8 +450,8 @@ def run(force_now: bool = False, watch: bool = False) -> int:
         log("No new candidates")
         return 0
 
-    roles = sorted({c["role"] for c in cands})
-    models = [CONFIG["champions"][r] for r in roles] + [c["repo"] for c in cands]
+    # both champions every time: a general model can also beat the coder at coding
+    models = list(dict.fromkeys(CONFIG["champions"].values())) + [c["repo"] for c in cands]
 
     from huggingface_hub import scan_cache_dir
 

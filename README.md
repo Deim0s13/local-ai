@@ -88,7 +88,7 @@ scripts/scout.sh run        # run now (30-60 min)
 scripts/scout.sh last       # latest scorecard
 ```
 
-Champions and the win rules live in `config/scout.json`.
+It skips models under 8 GB (too small to replace a 30B-class model) and models whose architecture your mlx-lm can't run yet, before downloading anything. Both champions are tested every run, and a general model can win the coding job too. Champions, size limits and the win rules live in `config/scout.json`.
 
 ## Morning brief (Phase 4)
 
