@@ -1,0 +1,19 @@
+{
+  "champions": {
+    "code": "lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-MLX-5bit",
+    "chat": "unsloth/Qwen3.6-35B-A3B-UD-MLX-4bit"
+  },
+  "sources": ["mlx-community", "lmstudio-community", "unsloth"],
+  "lookback_days": 45,
+  "max_model_gb": 30,
+  "max_challengers": 2,
+  "exclude": ["base", "embed", "rerank", "vision", "-vl-", "whisper", "tts", "audio", "draft", "eagle", "bf16", "fp16", "8bit", "3bit", "2bit", "mxfp", "dwq"],
+  "max_tokens": 900,
+  "win_rules": {
+    "role_score_gain": 10,
+    "max_overall_drop": 2,
+    "min_speed_ratio": 0.7,
+    "equal_quality_band": 2,
+    "faster_ratio_if_equal": 1.5
+  }
+}

@@ -1,0 +1,310 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "parse-duration",
+      "category": "coding",
+      "prompt": "Write a Python function parse_duration(s: str) -> int that converts strings like '1h30m', '45s', '2h', '1h2m3s' into total seconds. Raise ValueError on empty or invalid input.\n\nReturn only one Python code block that defines `parse_duration`. No explanation.",
+      "check": {
+        "type": "python_tests",
+        "tests": "assert parse_duration('1h30m')==5400\nassert parse_duration('45s')==45\nassert parse_duration('2h')==7200\nassert parse_duration('1h2m3s')==3723\ntry:\n    parse_duration('abc'); raise SystemExit(1)\nexcept ValueError: pass\ntry:\n    parse_duration(''); raise SystemExit(1)\nexcept ValueError: pass"
+      }
+    },
+    {
+      "id": "merge-intervals",
+      "category": "coding",
+      "prompt": "Write merge_intervals(intervals: list[tuple[int,int]]) -> list[tuple[int,int]] that merges overlapping or touching closed intervals and returns them sorted.\n\nReturn only one Python code block that defines `merge_intervals`. No explanation.",
+      "check": {
+        "type": "python_tests",
+        "tests": "assert merge_intervals([(1,3),(2,6),(8,10),(15,18)])==[(1,6),(8,10),(15,18)]\nassert merge_intervals([(1,4),(4,5)])==[(1,5)]\nassert merge_intervals([])==[]\nassert merge_intervals([(5,6),(1,2)])==[(1,2),(5,6)]"
+      }
+    },
+    {
+      "id": "semver-compare",
+      "category": "coding",
+      "prompt": "Write compare_versions(a: str, b: str) -> int returning -1, 0 or 1 for semantic versions like '1.2.10' vs '1.2.9'. Missing parts count as 0, so '1.2' equals '1.2.0'.\n\nReturn only one Python code block that defines `compare_versions`. No explanation.",
+      "check": {
+        "type": "python_tests",
+        "tests": "assert compare_versions('1.2.10','1.2.9')==1\nassert compare_versions('1.2','1.2.0')==0\nassert compare_versions('0.9','1.0')==-1\nassert compare_versions('2.0.0','2')==0"
+      }
+    },
+    {
+      "id": "ipv4-valid",
+      "category": "coding",
+      "prompt": "Write is_valid_ipv4(s: str) -> bool. Four decimal octets 0-255, no leading zeros (except '0' itself), no whitespace.\n\nReturn only one Python code block that defines `is_valid_ipv4`. No explanation.",
+      "check": {
+        "type": "python_tests",
+        "tests": "assert is_valid_ipv4('192.168.0.1')\nassert is_valid_ipv4('0.0.0.0')\nassert not is_valid_ipv4('256.1.1.1')\nassert not is_valid_ipv4('01.2.3.4')\nassert not is_valid_ipv4('1.2.3')\nassert not is_valid_ipv4(' 1.2.3.4')\nassert not is_valid_ipv4('1.2.3.a')"
+      }
+    },
+    {
+      "id": "flatten-dict",
+      "category": "coding",
+      "prompt": "Write flatten(d: dict, sep: str='.') -> dict that flattens nested dicts into dotted keys. Non-dict values (including lists) stay as they are. An empty nested dict produces no keys.\n\nReturn only one Python code block that defines `flatten`. No explanation.",
+      "check": {
+        "type": "python_tests",
+        "tests": "assert flatten({'a':1,'b':{'c':2,'d':{'e':3}}})=={'a':1,'b.c':2,'b.d.e':3}\nassert flatten({'a':{'b':[1,2]}})=={'a.b':[1,2]}\nassert flatten({'a':{}})=={}\nassert flatten({'x':{'y':1}},sep='/')=={'x/y':1}"
+      }
+    },
+    {
+      "id": "roman",
+      "category": "coding",
+      "prompt": "Write to_roman(n: int) -> str for 1..3999 using standard subtractive notation. Raise ValueError outside that range.\n\nReturn only one Python code block that defines `to_roman`. No explanation.",
+      "check": {
+        "type": "python_tests",
+        "tests": "assert to_roman(1994)=='MCMXCIV'\nassert to_roman(4)=='IV'\nassert to_roman(3999)=='MMMCMXCIX'\ntry:\n    to_roman(0); raise SystemExit(1)\nexcept ValueError: pass"
+      }
+    },
+    {
+      "id": "lru-cache",
+      "category": "coding",
+      "prompt": "Write a class LRUCache(capacity: int) with get(key) returning the value or -1, and put(key, value), evicting the least recently used key when full. Both operations O(1).\n\nReturn only one Python code block that defines `LRUCache`. No explanation.",
+      "check": {
+        "type": "python_tests",
+        "tests": "c=LRUCache(2)\nc.put(1,1); c.put(2,2)\nassert c.get(1)==1\nc.put(3,3)\nassert c.get(2)==-1\nc.put(4,4)\nassert c.get(1)==-1\nassert c.get(3)==3 and c.get(4)==4"
+      }
+    },
+    {
+      "id": "yaml-ports",
+      "category": "coding",
+      "prompt": "Write exposed_ports(manifest: dict) -> list[int] that takes a parsed Kubernetes Deployment (a dict) and returns the sorted unique containerPort values from all containers and initContainers. Missing keys must not raise.\n\nReturn only one Python code block that defines `exposed_ports`. No explanation.",
+      "check": {
+        "type": "python_tests",
+        "tests": "m={'spec':{'template':{'spec':{'containers':[{'name':'a','ports':[{'containerPort':8080},{'containerPort':8443}]},{'name':'b'}],'initContainers':[{'ports':[{'containerPort':8080}]}]}}}}\nassert exposed_ports(m)==[8080,8443]\nassert exposed_ports({})==[]"
+      }
+    },
+    {
+      "id": "ground-release",
+      "category": "research",
+      "prompt": "Answer only from this passage. Be brief.\n\nPassage:\nRelease notes, Platform 7.3 (fictional). General availability is 14 March. The minimum supported control-plane size is three nodes. In-place upgrades are supported only from 7.1 and 7.2; earlier versions need a 7.1 step first. The new GPU operator is a technology preview.\n\nQuestion: When is GA, what is the minimum control-plane size, and can I upgrade directly from 7.0?",
+      "check": {
+        "type": "must_include",
+        "terms": [
+          "14 March",
+          "three",
+          "7.1"
+        ]
+      }
+    },
+    {
+      "id": "ground-incident",
+      "category": "research",
+      "prompt": "Answer only from this passage. Be brief.\n\nPassage:\nIncident 4471 summary (fictional). At 02:14 the payment API latency rose above 2 seconds. Root cause was an expired TLS certificate on the internal message broker, which forced clients into slow retry loops. Service was restored at 03:05 after the certificate was rotated. Follow-up: add certificate-expiry alerting 30 days ahead.\n\nQuestion: What was the root cause, when was service restored, and what is the follow-up?",
+      "check": {
+        "type": "must_include",
+        "terms": [
+          "certificate",
+          "03:05",
+          "30 days"
+        ]
+      }
+    },
+    {
+      "id": "ground-pricing",
+      "category": "research",
+      "prompt": "Answer only from this passage. Be brief.\n\nPassage:\nVendor quote (fictional). Option A: 120,000 NZD per year, 3-year term, includes premium support. Option B: 95,000 NZD per year, 1-year term, standard support only; premium support adds 30,000 NZD per year.\n\nQuestion: Which option is cheaper per year with premium support included, and by how much?",
+      "check": {
+        "type": "must_include",
+        "terms": [
+          "Option A",
+          "5,000"
+        ]
+      }
+    },
+    {
+      "id": "ground-policy",
+      "category": "research",
+      "prompt": "Answer only from this passage. Be brief.\n\nPassage:\nData handling policy excerpt (fictional). Customer data classified Restricted must not leave the New Zealand region. Confidential data may be processed in Australia with approval from the data owner. Public data has no location restriction. All AI model training on Restricted data is prohibited.\n\nQuestion: Can Restricted data be used to fine-tune a model in Australia? Explain in one or two sentences.",
+      "check": {
+        "type": "must_include",
+        "terms": [
+          [
+            "prohibited",
+            "not allowed",
+            "not permitted",
+            "cannot"
+          ],
+          "Restricted"
+        ]
+      }
+    },
+    {
+      "id": "aiops-enrichment",
+      "category": "architecture",
+      "prompt": "Outline a reference architecture for AIOps ticket enrichment using Red Hat OpenShift AI and Event-Driven Ansible. Cover the flow from alert to enriched ticket, where the model runs, and two risks. Use short headings and bullets.",
+      "check": {
+        "type": "rubric",
+        "terms": [
+          "Event-Driven Ansible",
+          "OpenShift AI",
+          "ticket"
+        ],
+        "max_words": 350,
+        "banned": [
+          "leverage",
+          "synergy",
+          "cutting-edge",
+          "game-changer",
+          "game changer",
+          "revolutioniz",
+          "seamless",
+          "unlock the power",
+          "in today's fast-paced",
+          "delve"
+        ]
+      }
+    },
+    {
+      "id": "bank-k8s-tradeoffs",
+      "category": "architecture",
+      "prompt": "A regional bank is choosing between self-managed OpenShift on-premises and a managed Kubernetes service in a public cloud. Give a balanced comparison across operational resilience, regulatory compliance, skills and cost, then a recommendation with conditions.",
+      "check": {
+        "type": "rubric",
+        "terms": [
+          "resilience",
+          "compliance",
+          "cost",
+          "recommend"
+        ],
+        "max_words": 400,
+        "banned": [
+          "leverage",
+          "synergy",
+          "cutting-edge",
+          "game-changer",
+          "game changer",
+          "revolutioniz",
+          "seamless",
+          "unlock the power",
+          "in today's fast-paced",
+          "delve"
+        ]
+      }
+    },
+    {
+      "id": "workshop-followup",
+      "category": "architecture",
+      "prompt": "Write a short follow-up email to a customer CTO after a platform engineering workshop. Next steps: a two-week proof of concept on developer self-service, a security review with their CISO's team, and a decision meeting in four weeks.",
+      "check": {
+        "type": "rubric",
+        "terms": [
+          "proof of concept",
+          "security",
+          "four weeks"
+        ],
+        "max_words": 170,
+        "banned": [
+          "leverage",
+          "synergy",
+          "cutting-edge",
+          "game-changer",
+          "game changer",
+          "revolutioniz",
+          "seamless",
+          "unlock the power",
+          "in today's fast-paced",
+          "delve"
+        ]
+      }
+    },
+    {
+      "id": "eda-for-cio",
+      "category": "architecture",
+      "prompt": "Explain Event-Driven Ansible to a CIO in exactly five bullets, focusing on business outcomes, not syntax.",
+      "check": {
+        "type": "rubric",
+        "terms": [
+          "Ansible"
+        ],
+        "max_words": 140,
+        "banned": [
+          "leverage",
+          "synergy",
+          "cutting-edge",
+          "game-changer",
+          "game changer",
+          "revolutioniz",
+          "seamless",
+          "unlock the power",
+          "in today's fast-paced",
+          "delve"
+        ]
+      }
+    },
+    {
+      "id": "bian-mapping",
+      "category": "architecture",
+      "prompt": "Explain how BIAN service domains can guide the boundaries of microservices on a container platform for a bank. Include one concrete example service domain and one pitfall.",
+      "check": {
+        "type": "rubric",
+        "terms": [
+          "BIAN",
+          "service domain"
+        ],
+        "max_words": 300,
+        "banned": [
+          "leverage",
+          "synergy",
+          "cutting-edge",
+          "game-changer",
+          "game changer",
+          "revolutioniz",
+          "seamless",
+          "unlock the power",
+          "in today's fast-paced",
+          "delve"
+        ]
+      }
+    },
+    {
+      "id": "ai-risk-register",
+      "category": "architecture",
+      "prompt": "Draft a risk register for introducing a generative AI assistant for internal staff at a regulated bank: five risks, each with likelihood, impact and one mitigation, as a markdown table.",
+      "check": {
+        "type": "rubric",
+        "terms": [
+          "|",
+          "mitigation"
+        ],
+        "max_words": 350,
+        "banned": [
+          "leverage",
+          "synergy",
+          "cutting-edge",
+          "game-changer",
+          "game changer",
+          "revolutioniz",
+          "seamless",
+          "unlock the power",
+          "in today's fast-paced",
+          "delve"
+        ]
+      }
+    },
+    {
+      "id": "strict-json",
+      "category": "format",
+      "prompt": "Return only JSON, no code fence, matching {\"service\": string, \"replicas\": integer, \"ports\": [integer]} for a web service called checkout with 3 replicas exposing 8080 and 8443.",
+      "check": {
+        "type": "json_equals",
+        "expected": {
+          "service": "checkout",
+          "replicas": 3,
+          "ports": [
+            8080,
+            8443
+          ]
+        }
+      }
+    },
+    {
+      "id": "exact-bullets",
+      "category": "format",
+      "prompt": "List exactly three benefits of GitOps for platform teams. Output exactly three lines, each starting with '- ', and nothing else.",
+      "check": {
+        "type": "exact_bullets",
+        "count": 3
+      }
+    }
+  ]
+}
