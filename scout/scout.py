@@ -2,8 +2,9 @@
 
   python scout.py discover            list new MLX models that fit, no downloads
   python scout.py run [--force]       full run now: discover, test, score, scorecard
-  python scout.py auto                what launchd calls nightly: runs once a month,
-                                      only between 00:00 and 06:00; otherwise nudges
+  python scout.py auto                what launchd calls every 30 min: runs once a month,
+                                      overnight, or when the Mac is idle on power; pauses
+                                      and resumes later if you come back mid-run
   python scout.py gen <repo> <out>    (internal) generate answers for one model
   python scout.py rescore <month>     re-judge and rebuild a scorecard (e.g. 2026-12)
 
@@ -325,19 +326,57 @@ def write_scorecard(d: Path, candidates: list[dict], scores: dict, judged: bool)
     return wins
 
 
-def run(force_now: bool = False) -> int:
+IDLE_START_S = 15 * 60   # start when idle this long (outside the night window)
+IDLE_BACK_S = 60          # treat activity in the last minute as "you're back"
+LOCK = EVALS / ".scout.lock"
+
+
+def in_night() -> bool:
+    return dt.datetime.now().hour < 6
+
+
+def idle_seconds() -> float:
+    """Seconds since the last keyboard/mouse input (macOS). 0 if unknown."""
+    try:
+        out = subprocess.run(["/usr/sbin/ioreg", "-c", "IOHIDSystem", "-d", "4"], capture_output=True,
+                             text=True, timeout=10).stdout
+        m = re.search(r'"HIDIdleTime" = (\d+)', out)
+        return int(m.group(1)) / 1e9 if m else 0.0
+    except Exception:
+        return 0.0
+
+
+def on_ac_power() -> bool:
+    try:
+        out = subprocess.run(["/usr/bin/pmset", "-g", "batt"], capture_output=True, text=True,
+                             timeout=10).stdout
+        return "AC Power" in out
+    except Exception:
+        return False
+
+
+def user_back(watch: bool) -> bool:
+    return watch and not in_night() and idle_seconds() < IDLE_BACK_S
+
+
+def run(force_now: bool = False, watch: bool = False) -> int:
+    """watch=True: started because the Mac was idle; stop cleanly if the user returns."""
     d = month_dir()
     if (d / "scorecard.md").exists() and not force_now:
         log(f"Already done this month: {d / 'scorecard.md'}")
         return 0
     d.mkdir(parents=True, exist_ok=True)
-    log("Discovering new MLX models")
-    try:
-        cands = discover()[: CONFIG["max_challengers"]]
-    except RuntimeError as e:
-        log(str(e))
-        return 1
-    (d / "candidates.json").write_text(json.dumps(cands, indent=2))
+    if (d / "candidates.json").exists() and not force_now:
+        cands = json.loads((d / "candidates.json").read_text())
+        log("Resuming this month's run")
+    else:
+        log("Discovering new MLX models")
+        try:
+            cands = discover()[: CONFIG["max_challengers"]]
+        except RuntimeError as e:
+            log(str(e))
+            return 1
+        (d / "candidates.json").write_text(json.dumps(cands, indent=2))
     for c in cands:
         log(f"  candidate {c['repo']} ({c['role']}, {c['size_gb']} GB)")
     if not cands:
@@ -355,14 +394,32 @@ def run(force_now: bool = False) -> int:
     if was_running:
         log("Stopping oMLX to free memory")
         subprocess.run([str(OMLX), "stop"], capture_output=True)
+    interrupted = False
     try:
         for repo in models:
             out = d / f"gen-{omlx_id(repo)}.json"
             if out.exists():
                 continue
+            if user_back(watch):
+                interrupted = True
+                break
             log(f"Generating with {repo}")
-            r = subprocess.run([sys.executable, __file__, "gen", repo, str(out)])
-            if r.returncode != 0:
+            proc = subprocess.Popen([sys.executable, __file__, "gen", repo, str(out)])
+            while proc.poll() is None:
+                time.sleep(20)
+                if user_back(watch):
+                    log("You're back: pausing the scout, it will resume when the Mac is idle again")
+                    proc.terminate()
+                    try:
+                        proc.wait(30)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                    out.unlink(missing_ok=True)
+                    interrupted = True
+                    break
+            if interrupted:
+                break
+            if proc.returncode != 0:
                 log(f"  failed: {repo}")
     finally:
         if was_running:
@@ -371,6 +428,8 @@ def run(force_now: bool = False) -> int:
                 if omlx_ready():
                     break
                 time.sleep(2)
+    if interrupted:
+        return 3
     wins = rescore(d.name)
     # free disk: remove challengers we downloaded that did not win
     winners = {w.split(" ")[0] for w in wins}
@@ -409,15 +468,76 @@ def rescore(month: str) -> list[str]:
     return wins
 
 
+ASK_TIMEOUT_S = 600  # no answer in 10 minutes means "go ahead"
+DEFER = EVALS / ".deferred"
+
+
+def ask() -> str:
+    """Ask before starting. Returns "run", "skip" or "timeout"."""
+    script = (
+        'display dialog "The monthly model scout wants to run now. It stops your '
+        'local models for 30-60 minutes. If you don\'t answer within 10 minutes '
+        'it runs anyway." with title "Model scout" buttons {"Not today", "Run now"} '
+        f'default button "Run now" giving up after {ASK_TIMEOUT_S}'
+    )
+    try:
+        out = subprocess.run(["osascript", "-e", script], capture_output=True,
+                             text=True, timeout=ASK_TIMEOUT_S + 60).stdout
+    except Exception:
+        return "timeout"
+    if "gave up:true" in out:
+        return "timeout"
+    if "Run now" in out:
+        return "run"
+    return "skip"  # "Not today" (osascript also exits non-zero on cancel)
+
+
 def auto() -> int:
-    now = dt.datetime.now()
     if (month_dir() / "scorecard.md").exists():
         return 0
-    if now.hour < 6:
-        return run()
-    if now.day >= 7:
-        notify("Monthly model check is due. Run scripts/scout.sh run when you step away (about 30-60 min).")
-    return 0
+    if DEFER.exists() and DEFER.read_text().strip() == f"{dt.date.today()}":
+        return 0  # you said "Not today"
+    night = in_night()
+    if not night and not (on_ac_power() and idle_seconds() >= IDLE_START_S):
+        return 0  # not a good moment; launchd checks again in 30 minutes
+    EVALS.mkdir(parents=True, exist_ok=True)
+    # a failed attempt waits 6 hours before retrying (e.g. Hugging Face down)
+    fail = EVALS / ".last-failure"
+    if fail.exists() and time.time() - fail.stat().st_mtime < 6 * 3600:
+        return 0
+    try:
+        fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+    except FileExistsError:
+        try:
+            os.kill(int(LOCK.read_text() or 0), 0)
+            return 0  # another run is in progress
+        except (ProcessLookupError, ValueError):
+            LOCK.unlink(missing_ok=True)
+            return auto()
+    # keep the Mac awake (idle and system sleep) from the prompt until the run
+    # ends; -w ties it to this process, so it can never outlive us
+    awake = None
+    try:
+        awake = subprocess.Popen(["caffeinate", "-i", "-s", "-w", str(os.getpid())])
+    except OSError:
+        pass
+    try:
+        answer = ask()
+        log(f"asked before running: {answer}")
+        if answer == "skip":
+            DEFER.write_text(f"{dt.date.today()}")
+            return 0
+        # if you chose "Run now", don't stop just because you're at the keyboard
+        rc = run(watch=(answer == "timeout" and not night))
+        if rc == 1:
+            fail.touch()
+        return 0 if rc in (0, 3) else rc
+    finally:
+        if awake:
+            awake.terminate()
+        LOCK.unlink(missing_ok=True)
 
 
 def main(argv: list[str]) -> int:

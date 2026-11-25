@@ -4,9 +4,9 @@
 <dict>
   <key>Label</key>
   <string>com.local-ai.model-scout</string>
-  <!-- Fires nightly at 02:00; the script runs the check once a month and only
-       between 00:00 and 06:00. A run missed while asleep fires on wake, and then
-       only reminds you (from day 7) instead of tying up the Mac while you work. -->
+  <!-- Checks every 30 minutes; the script runs once a month, overnight
+       (00:00-06:00) or when the Mac is on power and idle for 15+ minutes.
+       It asks first (no answer in 10 minutes = run) and pauses if you come back. caffeinate keeps the Mac awake only while it runs. -->
   <key>ProgramArguments</key>
   <array>
     <string>__PY__</string>
@@ -17,13 +17,8 @@
   <string>__HOME__/logs/scout.log</string>
   <key>StandardErrorPath</key>
   <string>__HOME__/logs/scout.log</string>
-  <key>StartCalendarInterval</key>
-  <dict>
-    <key>Hour</key>
-    <integer>2</integer>
-    <key>Minute</key>
-    <integer>0</integer>
-  </dict>
+  <key>StartInterval</key>
+  <integer>1800</integer>
   <key>RunAtLoad</key>
   <false/>
 </dict>

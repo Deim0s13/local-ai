@@ -108,7 +108,7 @@ launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 echo "Loaded. Log: $LOCAL_AI_HOME/logs/brew.log"
 
-step "Monthly model scout (checks nightly at 02:00, runs once a month)"
+step "Monthly model scout (runs once a month, overnight or when idle; asks first)"
 PLIST="$HOME/Library/LaunchAgents/com.local-ai.model-scout.plist"
 sed -e "s|__REPO__|$REPO|g" -e "s|__PY__|$PY|g" -e "s|__HOME__|$LOCAL_AI_HOME|g" "$REPO/launchd/com.local-ai.model-scout.plist" >"$PLIST"
 launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
