@@ -33,8 +33,8 @@ if [[ -x "$PY" ]]; then
   [[ "${chunks:-0}" -gt 0 ]] && ok "Docs index: $chunks passages" || bad "Docs index empty (scripts/rag.sh add <folder>)"
 fi
 jq -e '.mcpServers["local-research"].active and .mcpServers["local-docs"].active' "$HOME/Library/Application Support/Jan/data/mcp_config.json" >/dev/null 2>&1 && ok "Jan has the research and docs tools" || bad "Jan MCP servers not registered (scripts/jan-mcp.sh)"
-launchctl print "gui/$(id -u)/com.local-ai.model-scout" >/dev/null 2>&1 && ok "Monthly model scout loaded (last: $(ls -1d "$HOME_DIR"/evals/20* 2>/dev/null | tail -1 | xargs -n1 basename 2>/dev/null || echo none))" || bad "Model scout job not loaded (run ./setup.sh)"
+launchctl print "gui/$(id -u)/com.local-ai.model-scout" >/dev/null 2>&1 && ok "Monthly model scout loaded (last scorecard: $(ls -1 "$HOME_DIR"/evals/20*/scorecard.md 2>/dev/null | tail -1 | xargs -n1 dirname 2>/dev/null | xargs -n1 basename 2>/dev/null || echo none yet))" || bad "Model scout job not loaded (run ./setup.sh)"
 
-launchctl print "gui/$(id -u)/com.local-ai.morning-brief" >/dev/null 2>&1 && ok "Morning brief loaded (last: $(ls -1 "$HOME_DIR"/briefs/20*.md 2>/dev/null | tail -1 | xargs -n1 basename 2>/dev/null || echo none))" || bad "Morning brief job not loaded (run ./setup.sh)"
+launchctl print "gui/$(id -u)/com.local-ai.morning-brief" >/dev/null 2>&1 && ok "Morning brief loaded (last: $(ls -1 "$HOME_DIR"/briefs/notes/20*.md 2>/dev/null | tail -1 | xargs -n1 basename 2>/dev/null || echo none))" || bad "Morning brief job not loaded (run ./setup.sh)"
 
 exit $fail
