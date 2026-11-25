@@ -408,6 +408,24 @@ def render_md(day: dt.date, top: str, sections: list[dict], brew: str, model_ok:
     return "\n".join(out) + "\n"
 
 
+# Sunrise over a horizon on a navy tile: reads well as a pinned tab in light and dark.
+ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="14" fill="#1f2a44"/>'
+    '<path d="M14 42a18 18 0 0 1 36 0z" fill="#ff8a3d"/>'
+    '<g stroke="#ffc46b" stroke-width="4" stroke-linecap="round">'
+    '<path d="M32 12v6M15 19l4 4M49 19l-4 4M8 33h5M51 33h5"/></g>'
+    '<path d="M8 42h48" stroke="#ffe7c2" stroke-width="4" stroke-linecap="round"/>'
+    '<path d="M18 50h28" stroke="#8fa3c7" stroke-width="4" stroke-linecap="round"/></svg>'
+)
+
+
+def icon_link() -> str:
+    from urllib.parse import quote
+
+    return f'<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,{quote(ICON_SVG)}">'
+
+
 def md_to_html(md: str, title: str, nav: list[tuple[str, str, bool]] = ()) -> str:
     def inline(s: str) -> str:
         s = html.escape(s)
@@ -462,6 +480,7 @@ def md_to_html(md: str, title: str, nav: list[tuple[str, str, bool]] = ()) -> st
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{html.escape(title)}</title>
 <meta http-equiv="refresh" content="3600">
+{icon_link()}
 <script>
 // a pinned tab picks up a new brief when you come back to it
 const loaded = Date.now();
