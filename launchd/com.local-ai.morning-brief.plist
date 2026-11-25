@@ -4,7 +4,7 @@
 <dict>
   <key>Label</key>
   <string>com.local-ai.morning-brief</string>
-  <!-- 09:30 daily, alongside the brew job (the brief waits for brew to finish
+  <!-- 09:30 on weekdays (the script skips Sat and Sun), alongside the brew job (the brief waits for brew to finish
        so it can list anything that needs you). If the Mac is asleep, it runs
        on wake; it only builds one brief per day. -->
   <key>ProgramArguments</key>

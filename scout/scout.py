@@ -4,7 +4,8 @@
   python scout.py run [--force]       full run now: discover, test, score, scorecard
   python scout.py auto                what launchd calls every 30 min: runs once a month,
                                       overnight, or when the Mac is idle on power; pauses
-                                      and resumes later if you come back mid-run
+                                      and resumes later if you come back mid-run;
+                                      never starts on Saturday or Sunday
   python scout.py gen <repo> <out>    (internal) generate answers for one model
   python scout.py rescore <month>     re-judge and rebuild a scorecard (e.g. 2026-12)
 
@@ -583,6 +584,8 @@ def ask() -> str:
 
 
 def auto() -> int:
+    if dt.date.today().weekday() >= 5:
+        return 0  # weekend: wait for Monday; `run` still works by hand
     if (month_dir() / "scorecard.md").exists():
         return 0
     if DEFER.exists() and DEFER.read_text().strip() == f"{dt.date.today()}":
