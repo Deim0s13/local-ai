@@ -8,6 +8,7 @@ CLI (used by scripts/rag.sh):
   python docs_server.py sync              refresh every indexed folder
   python docs_server.py remove <folder>   drop a folder from the index
   python docs_server.py status            folders, files and chunk counts
+  python docs_server.py find <name>       is a file indexed, and how many passages
   python docs_server.py                   run as an MCP server (stdio)
 
 Tools: search_docs(query, k), list_sources()
@@ -26,6 +27,9 @@ DB_PATH = HOME / "rag" / "index.sqlite"
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 TEXT_EXT = {".md", ".markdown", ".txt", ".rst", ".adoc", ".yaml", ".yml", ".json", ".csv"}
 DOC_EXT = {".pdf", ".docx", ".pptx", ".xlsx", ".html", ".htm"}
+TEXTUTIL_EXT = {".rtf", ".rtfd", ".doc", ".odt", ".webarchive"}  # macOS textutil
+APPLE_EXT = {".pages", ".numbers", ".key"}  # exported via the Apple app (osascript)
+SUPPORTED = TEXT_EXT | DOC_EXT | TEXTUTIL_EXT | APPLE_EXT
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".cache"}
 CHUNK_CHARS, OVERLAP = 1200, 150
 MAX_FILE_BYTES = 25 * 1024 * 1024
@@ -58,13 +62,71 @@ def db() -> sqlite3.Connection:
     return con
 
 
+def _run(cmd: list[str], timeout: int = 180) -> None:
+    import subprocess
+
+    subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
+
+
+def _apple_export(p: Path) -> str:
+    """Export a Pages/Numbers/Keynote file with its own app, then read the export."""
+    import tempfile
+    import zipfile
+
+    ext = p.suffix.lower()
+    # 1) Older documents carry a full preview PDF inside the bundle.
+    try:
+        if p.is_file() and zipfile.is_zipfile(p):
+            with zipfile.ZipFile(p) as z:
+                if "QuickLook/Preview.pdf" in z.namelist():
+                    with tempfile.TemporaryDirectory() as td:
+                        out = Path(td) / "preview.pdf"
+                        out.write_bytes(z.read("QuickLook/Preview.pdf"))
+                        return _markitdown(out)
+        elif (p / "QuickLook" / "Preview.pdf").exists():
+            return _markitdown(p / "QuickLook" / "Preview.pdf")
+    except Exception:
+        pass
+    # 2) Ask the app to export a copy (needs Pages/Numbers/Keynote installed).
+    app, fmt, suffix = {
+        ".pages": ("Pages", "unformatted text", ".txt"),
+        ".numbers": ("Numbers", "Microsoft Excel", ".xlsx"),
+        ".key": ("Keynote", "PDF", ".pdf"),
+    }[ext]
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td) / f"export{suffix}"
+        script = (
+            f'tell application "{app}"\n'
+            f'  set d to open (POSIX file "{p}")\n'
+            f'  export d to (POSIX file "{out}") as {fmt}\n'
+            f"  close d saving no\n"
+            f"end tell"
+        )
+        _run(["/usr/bin/osascript", "-e", script])
+        return out.read_text(errors="ignore") if suffix == ".txt" else _markitdown(out)
+
+
+def _markitdown(p: Path) -> str:
+    from markitdown import MarkItDown
+
+    return MarkItDown().convert(str(p)).text_content or ""
+
+
 def read_text(p: Path) -> str:
     ext = p.suffix.lower()
     if ext in TEXT_EXT:
         return p.read_text(errors="ignore")
-    from markitdown import MarkItDown
+    if ext in APPLE_EXT:
+        return _apple_export(p)
+    if ext in TEXTUTIL_EXT:
+        import subprocess
 
-    return MarkItDown().convert(str(p)).text_content or ""
+        r = subprocess.run(
+            ["/usr/bin/textutil", "-convert", "txt", "-stdout", str(p)],
+            check=True, capture_output=True, timeout=120,
+        )
+        return r.stdout.decode(errors="ignore")
+    return _markitdown(p)
 
 
 def chunk(text: str) -> list[str]:
@@ -87,21 +149,38 @@ def chunk(text: str) -> list[str]:
     return out
 
 
-def iter_files(root: Path):
+def iter_files(root: Path, unsupported=None):
+    """Yield indexable files. Apple package documents (folders) count as files.
+    Unsupported extensions are tallied in the `unsupported` Counter if given."""
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        keep = []
+        for d in dirnames:
+            if d in SKIP_DIRS or d.startswith("."):
+                continue
+            if Path(d).suffix.lower() in APPLE_EXT | {".rtfd"}:
+                yield Path(dirpath) / d  # package document, not a folder to walk
+            else:
+                keep.append(d)
+        dirnames[:] = keep
         for name in filenames:
+            if name.startswith("."):
+                continue
             p = Path(dirpath) / name
-            if p.suffix.lower() in TEXT_EXT | DOC_EXT and not name.startswith("."):
+            if p.suffix.lower() in SUPPORTED:
                 yield p
+            elif unsupported is not None:
+                unsupported[p.suffix.lower() or "(no extension)"] += 1
 
 
-def index_root(con: sqlite3.Connection, root: Path) -> tuple[int, int, int]:
+def index_root(con: sqlite3.Connection, root: Path, report: dict | None = None) -> tuple[int, int, int]:
+    from collections import Counter
+
     root = root.expanduser().resolve()
     con.execute("INSERT OR IGNORE INTO roots VALUES (?)", (str(root),))
     seen, added, skipped = set(), 0, 0
+    unsupported, failed = Counter(), []
     known = dict(con.execute("SELECT path, mtime FROM files WHERE root = ?", (str(root),)).fetchall())
-    for p in iter_files(root):
+    for p in iter_files(root, unsupported):
         sp = str(p)
         seen.add(sp)
         try:
@@ -113,7 +192,7 @@ def index_root(con: sqlite3.Connection, root: Path) -> tuple[int, int, int]:
         try:
             pieces = chunk(read_text(p))
         except Exception as e:  # unreadable file: note it and move on
-            print(f"  skip {p}: {e}", file=sys.stderr)
+            failed.append((sp, f"{type(e).__name__}: {str(e)[:120]}"))
             skipped += 1
             continue
         con.execute("DELETE FROM chunks WHERE path = ?", (sp,))
@@ -131,7 +210,23 @@ def index_root(con: sqlite3.Connection, root: Path) -> tuple[int, int, int]:
         con.execute("DELETE FROM chunks WHERE path = ?", (p,))
         con.execute("DELETE FROM files WHERE path = ?", (p,))
     con.commit()
+    if report is not None:
+        report["unsupported"] = unsupported
+        report["failed"] = failed
     return added, len(gone), skipped
+
+
+def print_report(root, added, gone, skipped, report):
+    print(f"{root}: {added} files (re)indexed, {gone} removed, {skipped} failed")
+    if report.get("failed"):
+        print("  could not read:")
+        for path, err in report["failed"][:20]:
+            print(f"    {path}  ({err})")
+        if len(report["failed"]) > 20:
+            print(f"    ...and {len(report['failed']) - 20} more")
+    if report.get("unsupported"):
+        top = ", ".join(f"{ext} x{n}" for ext, n in report["unsupported"].most_common(12))
+        print(f"  not indexed (unsupported types): {top}")
 
 
 # ---------- search ----------
@@ -234,13 +329,15 @@ def main(argv: list[str]) -> int:
             if not p.is_dir():
                 print(f"not a folder: {a}")
                 continue
-            added, gone, skipped = index_root(con, p)
-            print(f"{p}: {added} files (re)indexed, {gone} removed, {skipped} skipped")
+            rep: dict = {}
+            added, gone, skipped = index_root(con, p, rep)
+            print_report(p, added, gone, skipped, rep)
     elif cmd == "sync":
         for (r,) in con.execute("SELECT path FROM roots").fetchall():
             if Path(r).is_dir():
-                added, gone, skipped = index_root(con, Path(r))
-                print(f"{r}: {added} files (re)indexed, {gone} removed, {skipped} skipped")
+                rep: dict = {}
+                added, gone, skipped = index_root(con, Path(r), rep)
+                print_report(r, added, gone, skipped, rep)
             else:
                 print(f"{r}: folder missing, left in index")
     elif cmd == "remove":
@@ -256,6 +353,15 @@ def main(argv: list[str]) -> int:
         import json
 
         print(json.dumps(status(), indent=2))
+    elif cmd == "find":
+        pat = f"%{' '.join(args)}%"
+        rows = con.execute(
+            "SELECT f.path, COUNT(c.id) FROM files f LEFT JOIN chunks c ON c.path = f.path "
+            "WHERE f.path LIKE ? GROUP BY f.path", (pat,)).fetchall()
+        for path, n in rows:
+            print(f"{n:5d} passages  {path}")
+        if not rows:
+            print("no indexed file matches that name")
     elif cmd == "search":
         for hit in search(" ".join(args)):
             print(f"{hit['score']:.3f}  {hit['source']}#{hit['chunk']}\n    {hit['text'][:160]!r}")
