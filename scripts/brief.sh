@@ -14,3 +14,6 @@ case "${1:-}" in
 esac
 mkdir -p "$HOME_DIR/logs"
 "$HOME_DIR/venv/bin/python" "$REPO/brief/brief.py" "$@" 2>&1 | tee -a "$HOME_DIR/logs/brief.log"
+# run by hand: open the page straight away
+f="$(ls -1 "$HOME_DIR"/briefs/.web/20*.html 2>/dev/null | tail -1)"
+[[ "${1:-}" == "run" && -n "$f" ]] && { echo "Opening $f"; open "$f"; }

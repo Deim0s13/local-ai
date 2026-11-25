@@ -94,7 +94,7 @@ Champions and the win rules live in `config/scout.json`.
 
 At 09:30 every day your Mac builds a short news brief: New Zealand, world, tech and AI, business and sport. Headlines come from RSS feeds (the list from newsbrief) plus your SearXNG for the last day. Stories several outlets carry come first. Your chat model summarises them in the style of your profile. If the brew job left anything that needs your password, it's at the top.
 
-When it's ready, a notification appears; click it to open the page. Nothing leaves your Mac apart from fetching the news, and no accounts are needed. If the Mac was asleep at 09:30, it runs when it wakes.
+When it's ready, a notification appears; click it to open the page. Missed it? `scripts/brief.sh open`, or open `~/.local-ai/briefs/.web/` in Finder (press Cmd+Shift+. to show hidden folders). Nothing leaves your Mac apart from fetching the news, and no accounts are needed. If the Mac was asleep at 09:30, it runs when it wakes.
 
 ```sh
 scripts/brief.sh run      # build today's brief now (2-5 min)

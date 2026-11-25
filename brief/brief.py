@@ -401,10 +401,11 @@ def notify(page: Path, text: str) -> None:
     if tn:  # clicking the notification opens the page
         subprocess.run([tn, "-title", "Morning brief", "-message", text, "-open", page.as_uri(),
                         "-group", "local-ai-brief"], capture_output=True)
-    else:
+    else:  # a plain notification can't open anything on click, so open the page itself
         text = text.replace('"', "'")
         subprocess.run(["/usr/bin/osascript", "-e",
                         f'display notification "{text}" with title "Morning brief"'], capture_output=True)
+        subprocess.run(["/usr/bin/open", str(page)], capture_output=True)
 
 
 def index_briefs() -> None:
