@@ -320,13 +320,76 @@ def brew_needs_you(wait_s: int = 1200) -> str:
     return "" if body in ("", "- nothing") else body
 
 
+# ---------------------------------------------------------------- model check
+EVALS = HOME / "evals"
+SHOWN = BRIEFS / ".model-check-shown.json"
+
+
+def model_check(day: dt.date) -> tuple[str, dict | None]:
+    """A 'Model check' section, the first brief after a scout run (or rescore)."""
+    files = sorted(EVALS.glob("20*/summary.json"))
+    if not files:
+        return "", None
+    f = files[-1]
+    mtime = f.stat().st_mtime
+    try:
+        seen = json.loads(SHOWN.read_text())
+    except Exception:
+        seen = {}
+    already = seen.get("mtime", 0) >= mtime and seen.get("day") != str(day)
+    if already:
+        return "", None
+    try:
+        sm = json.loads(f.read_text())
+    except Exception:
+        return "", None
+    month = dt.datetime.strptime(sm["month"], "%Y-%m")
+    out = [f"## Model check: {month:%B %Y}", ""]
+    if sm["wins"]:
+        for w in sm["wins"]:
+            out.append(f"- **New winner for {'coding' if w['role'] == 'code' else 'chat'}: {w['repo']}** ({w['why']})")
+        out.append("")
+    elif not sm.get("candidates"):
+        out += ["No new models worth testing this month. Your current models stay.", ""]
+    else:
+        out += ["Your current models hold. Nothing new beat them clearly.", ""]
+    if sm["rows"]:
+        out += ["| Model | Coding | Research | Writing | Format | tok/s | Memory GB |",
+                "|---|---|---|---|---|---|---|"]
+        for r in sm["rows"]:
+            c = r["categories"]
+            tag = r.get("tag", "")
+            label = ("current chat" if "chat" in tag else "current coding") if tag.startswith("champion") else "challenger"
+            name = f"{r['repo'].split('/')[-1]} ({label})"
+            out.append(f"| {name} | {c.get('coding', '')} | {c.get('research', '')} | {c.get('architecture', '')} "
+                       f"| {c.get('format', '')} | {r['tps']} | {r['memory_gb']} |")
+        out.append("")
+        notes = [f"- {r['repo'].split('/')[-1]}: {r['verdict']}" for r in sm["rows"] if r.get("verdict")]
+        if notes:
+            out += notes + [""]
+    if not sm.get("judged", True):
+        out += ["_Writing scores are rubric-only this month: the judge model wasn't available._", ""]
+    if sm.get("skipped"):
+        out += ["Skipped: " + "; ".join(f"{x['repo'].split('/')[-1]} ({x['reason']})" for x in sm["skipped"]), ""]
+    if sm["wins"]:
+        out += ["To switch, download it in oMLX, then run:", "", "```"]
+        for w in sm["wins"]:
+            var = "CODE_MODEL" if w["role"] == "code" else "CHAT_MODEL"
+            out.append(f"cd ~/Projects/local-ai && {var}={w['id']} ./setup.sh")
+        out += ["```", "", "Then set the new champion in `config/scout.json`.", ""]
+    return "\n".join(out), {"mtime": mtime, "day": str(day)}
+
+
 # ---------------------------------------------------------------- output
-def render_md(day: dt.date, top: str, sections: list[dict], brew: str, model_ok: bool = True) -> str:
+def render_md(day: dt.date, top: str, sections: list[dict], brew: str, model_ok: bool = True,
+              check: str = "") -> str:
     out = [f"# Morning brief: {day:%A %d %B %Y}", ""]
     if top:
         out += [top, ""]
     if brew:
         out += ["## Needs you: Homebrew", "", brew, ""]
+    if check:
+        out += [check, ""]
     for s in sections:
         out += [f"## {s['name']}", ""]
         for p in s["points"]:
@@ -353,8 +416,22 @@ def md_to_html(md: str, title: str, nav: list[tuple[str, str, bool]] = ()) -> st
         s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
         return re.sub(r"(?<!\w)_(.+?)_(?!\w)", r"<em>\1</em>", s)
 
-    body, in_list, in_code = [], False, False
+    body, in_list, in_code, in_table = [], False, False, False
     for line in md.splitlines():
+        if line.startswith("|") and not in_code:
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if all(re.fullmatch(r":?-+:?", c) for c in cells):
+                continue
+            if not in_table:
+                body.append('<div class="tbl"><table>')
+                in_table, tag = True, "th"
+            else:
+                tag = "td"
+            body.append("<tr>" + "".join(f"<{tag}>{inline(c)}</{tag}>" for c in cells) + "</tr>")
+            continue
+        if in_table:
+            body.append("</table></div>")
+            in_table = False
         if line.startswith("```"):
             body.append("</pre>" if in_code else "<pre>")
             in_code = not in_code
@@ -378,6 +455,8 @@ def md_to_html(md: str, title: str, nav: list[tuple[str, str, bool]] = ()) -> st
             body.append(f"<p>{inline(line)}</p>")
     if in_list:
         body.append("</ul>")
+    if in_table:
+        body.append("</table></div>")
     side = "".join(f'<a href="{href}"{" class=on" if on else ""}>{html.escape(label)}</a>'
                    for label, href, on in nav)
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -406,6 +485,9 @@ h2 {{ font-size:15px; text-transform:uppercase; letter-spacing:.06em; color:var(
       border-top:1px solid var(--line); padding-top:20px; margin-top:28px; }}
 ul {{ padding-left:20px; }} li {{ margin:0 0 12px; }}
 a {{ color:var(--muted); }} em {{ color:var(--muted); font-size:14px; }}
+.tbl {{ overflow-x:auto; }} table {{ border-collapse:collapse; font-size:14px; width:100%; }}
+th, td {{ text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }}
+th {{ color:var(--muted); font-weight:600; }}
 pre {{ background:var(--line); padding:10px 12px; border-radius:6px; overflow-x:auto; }}
 </style></head><body><div class="wrap">
 <nav><b>Past week</b>{side}</nav>
@@ -515,14 +597,19 @@ def run(force: bool = False) -> int:
         return 1
     top = overview(sections) if model_ok else ""
     brew = brew_needs_you()
-    md = render_md(day, top, sections, brew, model_ok)
+    check, shown = model_check(day)
+    md = render_md(day, top, sections, brew, model_ok, check)
     md_path.write_text(md)
+    if shown:
+        SHOWN.write_text(json.dumps(shown))
     write_pages(day, md)
     log(f"wrote {md_path} and {LATEST}")
     index_briefs()
     msg = (top.split(". ")[0][:150] if top else "Your news is ready.")
     if brew:
         msg = "Brew needs you. " + msg
+    if check and "New winner" in check:
+        msg = "A new model won this month's check. " + msg
     notify(LATEST, msg)
     return 0
 

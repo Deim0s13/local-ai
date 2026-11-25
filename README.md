@@ -72,7 +72,7 @@ Once a month the scout looks for new open-weight MLX models (mlx-community, lmst
 - Red Hat and architecture writing: 6 tasks checked by a rubric plus a judge score from the chat champion
 - format: 2 tasks checking exact output shape
 
-It records quality, speed and memory in `~/.local-ai/evals/<month>/scorecard.md`. You get a notification only when a challenger clearly wins; it never switches models by itself. Challengers that lose are deleted again, to save disk.
+It records quality, speed and memory in `~/.local-ai/evals/<month>/scorecard.md`. The results show up in the next morning brief. You get a notification only when a challenger clearly wins; it never switches models by itself. Challengers that lose are deleted again, to save disk.
 
 It runs by itself, because it stops oMLX while it tests: overnight (00:00 to 06:00), or otherwise the next time the Mac is on power and idle for 15 minutes. Before it starts, a dialog asks **Run now** or **Not today**. If nobody answers within 10 minutes it runs anyway. If you come back mid-run without having said "Run now", it stops, restarts oMLX, and picks up where it left off at the next idle moment. While it runs it uses `caffeinate` so the Mac does not sleep halfway, and lets go as soon as it finishes.
 
@@ -92,7 +92,7 @@ It skips models under 8 GB (too small to replace a 30B-class model) and models w
 
 ## Morning brief (Phase 4)
 
-At 09:30 every day your Mac builds a short news brief: New Zealand, world, tech and AI, business and sport. Headlines come from RSS feeds (the list from newsbrief) plus your SearXNG for the last day. Stories several outlets carry come first. Your chat model summarises them in the style of your profile. If the brew job left anything that needs your password, it's at the top.
+At 09:30 every day your Mac builds a short news brief: New Zealand, world, tech and AI, business and sport. Headlines come from RSS feeds (the list from newsbrief) plus your SearXNG for the last day. Stories several outlets carry come first. Your chat model summarises them in the style of your profile. If the brew job left anything that needs your password, it's at the top. The morning after a model scout run, it also shows a **Model check** section: the verdict, a score table, skipped models and the exact switch command if something won.
 
 When it's ready, a notification appears; click it to open the page. The page always lives at `~/.local-ai/briefs/latest.html`, with the past week in a sidebar, so you can pin it as a browser tab. It refreshes itself when you come back to it. `scripts/brief.sh open` opens it too. Nothing leaves your Mac apart from fetching the news, and no accounts are needed. If the Mac was asleep at 09:30, it runs when it wakes.
 
