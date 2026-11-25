@@ -6,7 +6,7 @@
   "share": "disabled",
   "snapshot": true,
   "enabled_providers": ["local"],
-  "instructions": ["__LOCAL_AI_HOME__/profile/about-me.md"],
+  "instructions": ["__LOCAL_AI_HOME__/profile/about-me.md", "__REPO__/templates/tool-guidance.md"],
   "provider": {
     "local": {
       "npm": "@ai-sdk/openai-compatible",

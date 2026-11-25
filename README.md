@@ -31,7 +31,7 @@ The oMLX API key is never copied. New shells read it from `~/.omlx/settings.json
 1. In Jan, open Settings, then Model Providers, and add an OpenAI-compatible provider.
 2. Set the base URL to `http://127.0.0.1:8000/v1`.
 3. For the API key, paste the output of `jq -r .auth.api_key ~/.omlx/settings.json`. Jan stores it in its own app data, not here.
-4. Add the chat model id that `./scripts/check.sh` lists.
+4. Add the chat model id that `./scripts/check.sh` lists, then edit that model (pencil icon) and switch on **Tools**. Without it Jan never calls the research or docs tools.
 5. Create an assistant for yourself in Jan, then re-run `./setup.sh`. From then on its instructions stay in sync with `~/.local-ai/profile/about-me.md`: every save of that file updates Jan automatically. Quit and reopen Jan to load a change (a notification reminds you). With more than one custom assistant, set `JAN_ASSISTANT` in `~/.local-ai/settings.env`.
 6. Until Phase 2, leave Jan's built-in MCP or search tools off, so answers come only from the model.
 

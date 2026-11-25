@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Copy ~/.local-ai/profile/about-me.md into a Jan assistant's instructions.
-# about-me.md is the single source of truth. Run by launchd whenever the file changes.
+# about-me.md is the single source of truth; templates/tool-guidance.md is appended
+# so the model knows to use its search_docs and web_search tools. Run by launchd whenever the file changes.
 # Which assistant: JAN_ASSISTANT in ~/.local-ai/settings.env (its display name in Jan).
 # If unset and there is exactly one assistant besides Jan's default, that one is used and remembered.
 set -euo pipefail
@@ -41,12 +42,14 @@ else
   fi
 fi
 
-if [[ "$("$JQ" -r '.instructions // ""' "$target")" == "$(cat "$PROFILE")" ]]; then
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+CONTENT="$(cat "$PROFILE"; [[ -f "$REPO/templates/tool-guidance.md" ]] && cat "$REPO/templates/tool-guidance.md")"
+if [[ "$("$JQ" -r '.instructions // ""' "$target")" == "$CONTENT" ]]; then
   say "Jan assistant already up to date"; exit 0
 fi
 cp "$target" "$target.bak"
 tmp="$(mktemp "${TMPDIR:-/tmp}/jan-assistant.XXXXXX")"
-"$JQ" --rawfile p "$PROFILE" '.instructions = $p' "$target" >"$tmp" && mv "$tmp" "$target"
+"$JQ" --arg p "$CONTENT" '.instructions = $p' "$target" >"$tmp" && mv "$tmp" "$target"
 say "Updated Jan assistant instructions from $PROFILE"
 
 if pgrep -x Jan >/dev/null 2>&1; then
