@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Daily Homebrew update and greedy upgrade, run by launchd at 09:30.
+# Skips Saturday and Sunday; run `scripts/brew-daily.sh --force` to run anyway.
 # - Answers "yes" to any confirmation prompt, never waits for input.
 # - Apps whose installers need your password can't be done unattended:
 #   they fail fast, are listed in the summary, and you get a notification.
@@ -7,6 +8,9 @@
 #   ~/.local-ai/logs/brew.log             full log, appended daily
 #   ~/.local-ai/logs/brew-summary.md      today's short report
 set -uo pipefail
+if [[ "$(date +%u)" -ge 6 && "${1:-}" != "--force" ]]; then
+  exit 0   # weekend: the work Mac is off duty
+fi
 export NONINTERACTIVE=1
 export HOMEBREW_NO_ENV_HINTS=1
 export HOMEBREW_NO_AUTO_UPDATE=1      # we run brew update ourselves, once

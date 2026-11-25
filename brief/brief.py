@@ -1,7 +1,8 @@
 """Morning brief: news, summarised by your local chat model, plus brew items.
 
   python brief.py run [--force]   build today's brief now (--force rebuilds it)
-  python brief.py auto            what launchd calls at 09:30 (skips if today's exists)
+  python brief.py auto            what launchd calls at 09:30 (skips if today's exists,
+                                  and skips Saturday and Sunday)
 
 Writes, outside the repo:
   ~/.local-ai/briefs/latest.html             today's brief + the past week (pin this tab)
@@ -638,6 +639,8 @@ def main(argv: list[str]) -> int:
     if cmd == "run":
         return run(force="--force" in argv)
     if cmd == "auto":
+        if dt.date.today().weekday() >= 5:
+            return 0  # weekend: the work Mac is off duty; `run` still works by hand
         return run(force=False)
     print(__doc__)
     return 2
