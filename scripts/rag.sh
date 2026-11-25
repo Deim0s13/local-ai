@@ -5,5 +5,6 @@
 #   scripts/rag.sh remove <folder>         drop a folder
 #   scripts/rag.sh status                  what is indexed
 #   scripts/rag.sh search <words>          quick test search
+#   scripts/rag.sh find <part of a name>   check a file is indexed
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 exec "${LOCAL_AI_HOME:-$HOME/.local-ai}/venv/bin/python" "$REPO/servers/docs_server.py" "$@"
