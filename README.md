@@ -90,6 +90,21 @@ scripts/scout.sh last       # latest scorecard
 
 Champions and the win rules live in `config/scout.json`.
 
+## Morning brief (Phase 4)
+
+At 09:30 every day your Mac builds a short news brief: New Zealand, world, tech and AI, business and sport. Headlines come from RSS feeds (the list from newsbrief) plus your SearXNG for the last day. Stories several outlets carry come first. Your chat model summarises them in the style of your profile. If the brew job left anything that needs your password, it's at the top.
+
+When it's ready, a notification appears; click it to open the page. Nothing leaves your Mac apart from fetching the news, and no accounts are needed. If the Mac was asleep at 09:30, it runs when it wakes.
+
+```sh
+scripts/brief.sh run      # build today's brief now (2-5 min)
+scripts/brief.sh open     # open the latest one
+scripts/brief.sh last     # print it in Terminal
+```
+
+Briefs are saved as `~/.local-ai/briefs/<date>.md` and are added to your document search, so you can ask Jan things like "what was in the news about Red Hat last week?". Edit feeds and sections in `config/brief.json`. Calendar and email come later.
+
+
 
 This repo is public. It holds code and config templates only.
 
