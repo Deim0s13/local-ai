@@ -516,6 +516,13 @@ def auto() -> int:
         except (ProcessLookupError, ValueError):
             LOCK.unlink(missing_ok=True)
             return auto()
+    # keep the Mac awake (idle and system sleep) from the prompt until the run
+    # ends; -w ties it to this process, so it can never outlive us
+    awake = None
+    try:
+        awake = subprocess.Popen(["caffeinate", "-i", "-s", "-w", str(os.getpid())])
+    except OSError:
+        pass
     try:
         answer = ask()
         log(f"asked before running: {answer}")
@@ -528,6 +535,8 @@ def auto() -> int:
             fail.touch()
         return 0 if rc in (0, 3) else rc
     finally:
+        if awake:
+            awake.terminate()
         LOCK.unlink(missing_ok=True)
 
 

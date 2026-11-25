@@ -6,7 +6,7 @@
   <string>com.local-ai.model-scout</string>
   <!-- Checks every 30 minutes; the script runs once a month, overnight
        (00:00-06:00) or when the Mac is on power and idle for 15+ minutes.
-       It asks first (no answer in 10 minutes = run) and pauses if you come back. -->
+       It asks first (no answer in 10 minutes = run) and pauses if you come back. caffeinate keeps the Mac awake only while it runs. -->
   <key>ProgramArguments</key>
   <array>
     <string>__PY__</string>

@@ -74,7 +74,7 @@ Once a month the scout looks for new open-weight MLX models (mlx-community, lmst
 
 It records quality, speed and memory in `~/.local-ai/evals/<month>/scorecard.md`. You get a notification only when a challenger clearly wins; it never switches models by itself. Challengers that lose are deleted again, to save disk.
 
-It runs by itself, because it stops oMLX while it tests: overnight (00:00 to 06:00), or otherwise the next time the Mac is on power and idle for 15 minutes. Before it starts, a dialog asks **Run now** or **Not today**. If nobody answers within 10 minutes it runs anyway. If you come back mid-run without having said "Run now", it stops, restarts oMLX, and picks up where it left off at the next idle moment.
+It runs by itself, because it stops oMLX while it tests: overnight (00:00 to 06:00), or otherwise the next time the Mac is on power and idle for 15 minutes. Before it starts, a dialog asks **Run now** or **Not today**. If nobody answers within 10 minutes it runs anyway. If you come back mid-run without having said "Run now", it stops, restarts oMLX, and picks up where it left off at the next idle moment. While it runs it uses `caffeinate` so the Mac does not sleep halfway, and lets go as soon as it finishes.
 
 Optional: to let it run overnight even when the lid is closed on power, wake the Mac at 02:00 daily. This replaces any existing `pmset repeat` schedule; undo with `sudo pmset repeat cancel`.
 
