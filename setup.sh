@@ -62,7 +62,7 @@ echo "Chat model:   $CHAT_MODEL"
 step "Python env for the MCP servers ($LOCAL_AI_HOME/venv)"
 command -v uv >/dev/null || brew install uv
 [[ -x "$LOCAL_AI_HOME/venv/bin/python" ]] || uv venv --python 3.12 "$LOCAL_AI_HOME/venv"
-uv pip install --python "$LOCAL_AI_HOME/venv/bin/python" -q -r "$REPO/requirements.txt"
+uv pip install --python "$LOCAL_AI_HOME/venv/bin/python" -q --upgrade -r "$REPO/requirements.txt"  # keeps mlx-lm current for new model types
 PY="$LOCAL_AI_HOME/venv/bin/python"
 echo "Installed MCP server dependencies"
 
