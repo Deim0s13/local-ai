@@ -115,4 +115,12 @@ launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 echo "Loaded. Scorecards: $LOCAL_AI_HOME/evals/<month>/scorecard.md"
 
+step "Morning brief at 09:30 (news + anything brew needs from you)"
+command -v terminal-notifier >/dev/null || brew install terminal-notifier
+PLIST="$HOME/Library/LaunchAgents/com.local-ai.morning-brief.plist"
+sed -e "s|__REPO__|$REPO|g" -e "s|__PY__|$PY|g" -e "s|__HOME__|$LOCAL_AI_HOME|g" "$REPO/launchd/com.local-ai.morning-brief.plist" >"$PLIST"
+launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+echo "Loaded. Try it now: scripts/brief.sh run"
+
 step "Done. Open a new terminal, then run: ./scripts/check.sh"

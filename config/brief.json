@@ -1,0 +1,33 @@
+{
+  "_note": "Morning brief sources. Feeds come from the newsbrief app's list (dead Reuters feed dropped, NZ and sport added). 'search' adds SearXNG news results from the last day to fill gaps.",
+  "model": null,
+  "hours": 30,
+  "items_per_section": 6,
+  "fetch_top": 3,
+  "sections": [
+    {"name": "New Zealand", "feeds": [
+      "https://www.rnz.co.nz/rss/national.xml",
+      "https://www.rnz.co.nz/rss/political.xml"],
+      "search": "New Zealand news"},
+    {"name": "World", "feeds": [
+      "https://feeds.bbci.co.uk/news/world/rss.xml",
+      "https://www.aljazeera.com/xml/rss/all.xml",
+      "https://www.theguardian.com/world/rss",
+      "https://feeds.npr.org/1001/rss.xml"]},
+    {"name": "Tech and AI", "feeds": [
+      "https://feeds.arstechnica.com/arstechnica/index",
+      "https://www.theverge.com/rss/index.xml",
+      "https://hnrss.org/frontpage",
+      "https://www.technologyreview.com/topnews.rss",
+      "https://www.redhat.com/en/rss/blog"],
+      "search": "open source AI enterprise news"},
+    {"name": "Business", "feeds": [
+      "https://www.rnz.co.nz/rss/business.xml",
+      "https://feeds.bbci.co.uk/news/business/rss.xml",
+      "https://feeds.bloomberg.com/technology/news.rss"]},
+    {"name": "Sport", "feeds": [
+      "https://www.rnz.co.nz/rss/sport.xml",
+      "https://feeds.bbci.co.uk/sport/rss.xml"],
+      "search": "New Zealand sport results"}
+  ]
+}

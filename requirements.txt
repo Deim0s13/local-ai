@@ -6,4 +6,5 @@ markitdown[pdf,docx,pptx,xlsx]>=0.1.9
 numpy>=2.0
 sentence-transformers>=3.0
 huggingface_hub>=0.25
+feedparser>=6.0
 mlx-lm>=0.28; sys_platform == "darwin"
