@@ -1,0 +1,443 @@
+"""Model scout: monthly check for better open-weight MLX models.
+
+  python scout.py discover            list new MLX models that fit, no downloads
+  python scout.py run [--force]       full run now: discover, test, score, scorecard
+  python scout.py auto                what launchd calls nightly: runs once a month,
+                                      only between 00:00 and 06:00; otherwise nudges
+  python scout.py gen <repo> <out>    (internal) generate answers for one model
+  python scout.py rescore <month>     re-judge and rebuild a scorecard (e.g. 2026-12)
+
+Everything it writes goes to ~/.local-ai/evals/<YYYY-MM>/, outside the repo.
+"""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+CONFIG = json.loads((REPO / "config" / "scout.json").read_text())
+TASKS = json.loads((REPO / "evals" / "tasks.json").read_text())["tasks"]
+HOME = Path(os.environ.get("LOCAL_AI_HOME", Path.home() / ".local-ai")).expanduser()
+EVALS = HOME / "evals"
+OMLX = Path.home() / ".omlx" / "bin" / "omlx"
+OMLX_SETTINGS = Path.home() / ".omlx" / "settings.json"
+OMLX_URL = "http://127.0.0.1:8000"
+HF_API = "https://huggingface.co/api"
+SYSTEM = "You are a concise, practical assistant for an enterprise architect. Use plain language."
+
+
+def log(msg: str) -> None:
+    print(f"{dt.datetime.now():%H:%M:%S} {msg}", flush=True)
+
+
+def notify(msg: str, title: str = "Model scout") -> None:
+    if sys.platform == "darwin":
+        msg = msg.replace('"', "'")
+        subprocess.run(["/usr/bin/osascript", "-e", f'display notification "{msg}" with title "{title}"'],
+                       capture_output=True)
+
+
+def month_dir(month: str | None = None) -> Path:
+    return EVALS / (month or f"{dt.date.today():%Y-%m}")
+
+
+# ---------------------------------------------------------------- discover
+def _get(url: str, params: dict | None = None):
+    import httpx
+
+    r = httpx.get(url, params=params, timeout=30, follow_redirects=True)
+    r.raise_for_status()
+    return r.json()
+
+
+def model_size_gb(repo: str) -> float | None:
+    try:
+        info = _get(f"{HF_API}/models/{repo}", {"blobs": "true"})
+    except Exception:
+        return None
+    total = sum(s.get("size") or 0 for s in info.get("siblings", [])
+                if s.get("rfilename", "").endswith(".safetensors"))
+    return round(total / 1e9, 1) if total else None
+
+
+def role_of(repo: str) -> str:
+    return "code" if re.search(r"coder|code", repo, re.I) else "chat"
+
+
+def seen_models() -> set[str]:
+    f = EVALS / "seen.json"
+    return set(json.loads(f.read_text())) if f.exists() else set()
+
+
+def discover() -> list[dict]:
+    since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=CONFIG["lookback_days"])
+    skip = seen_models() | set(CONFIG["champions"].values())
+    found, errors = [], 0
+    for author in CONFIG["sources"]:
+        try:
+            items = _get(f"{HF_API}/models", {"author": author, "sort": "createdAt", "direction": "-1",
+                                              "limit": "100"})
+        except Exception as e:
+            log(f"discover {author}: {e}")
+            errors += 1
+            continue
+        for m in items:
+            repo = m.get("id") or m.get("modelId", "")
+            name = repo.lower()
+            created = m.get("createdAt")
+            if not repo or repo in skip or not created:
+                continue
+            if dt.datetime.fromisoformat(created.replace("Z", "+00:00")) < since:
+                continue
+            if "mlx" not in name and "mlx" not in [t.lower() for t in m.get("tags", [])]:
+                continue
+            if any(x in name for x in CONFIG["exclude"]):
+                continue
+            if m.get("pipeline_tag") not in (None, "text-generation"):
+                continue
+            found.append({"repo": repo, "created": created[:10], "downloads": m.get("downloads", 0),
+                          "likes": m.get("likes", 0), "role": role_of(repo)})
+    if errors == len(CONFIG["sources"]):
+        raise RuntimeError("Hugging Face unreachable; will try again next night")
+    found.sort(key=lambda x: (x["downloads"] + 50 * x["likes"]), reverse=True)
+    fits = []
+    for m in found[:25]:
+        gb = model_size_gb(m["repo"])
+        if gb is None or gb > CONFIG["max_model_gb"]:
+            continue
+        m["size_gb"] = gb
+        fits.append(m)
+    return fits
+
+
+# ---------------------------------------------------------------- generate (one model per process)
+def strip_think(text: str) -> str:
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+
+
+def gen(repo: str, out: Path) -> int:
+    import mlx.core as mx
+    from mlx_lm import load, stream_generate
+
+    t0 = time.time()
+    model, tok = load(repo)
+    load_s = round(time.time() - t0, 1)
+    results, tps = [], []
+    for task in TASKS:
+        msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": task["prompt"]}]
+        try:
+            prompt = tok.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False,
+                                             enable_thinking=False)
+        except TypeError:
+            prompt = tok.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False)
+        text, last = "", None
+        start = time.time()
+        for resp in stream_generate(model, tok, prompt, max_tokens=CONFIG["max_tokens"]):
+            text += resp.text
+            last = resp
+        results.append({"id": task["id"], "output": strip_think(text),
+                        "seconds": round(time.time() - start, 1),
+                        "tps": round(getattr(last, "generation_tps", 0.0), 1)})
+        tps.append(results[-1]["tps"])
+        log(f"  {task['id']}: {results[-1]['seconds']}s")
+    out.write_text(json.dumps({
+        "repo": repo, "load_seconds": load_s,
+        "peak_memory_gb": round(mx.get_peak_memory() / 1e9, 1),
+        "median_tps": sorted(tps)[len(tps) // 2] if tps else 0,
+        "results": results}, indent=2))
+    return 0
+
+
+# ---------------------------------------------------------------- scoring
+BANNED_NOTE = "buzzwords"
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[\s,]", "", s.lower())
+
+
+def _has(text: str, term) -> bool:
+    alts = term if isinstance(term, list) else [term]
+    return any(_norm(a) in _norm(text) for a in alts)
+
+
+def extract_code(text: str) -> str:
+    m = re.findall(r"```(?:python|py)?\s*\n(.*?)```", text, re.S)
+    return max(m, key=len) if m else text
+
+
+def run_tests(code: str, tests: str) -> float:
+    with tempfile.TemporaryDirectory() as td:
+        f = Path(td) / "t.py"
+        f.write_text(code + "\n\n" + tests + "\n")
+        try:
+            r = subprocess.run([sys.executable, "-I", str(f)], cwd=td, capture_output=True, timeout=20)
+            return 1.0 if r.returncode == 0 else 0.0
+        except subprocess.TimeoutExpired:
+            return 0.0
+
+
+def judge(task: dict, answer: str, judge_model: str, key: str) -> float | None:
+    import httpx
+
+    prompt = (
+        "You are grading an answer for an experienced enterprise architect audience.\n"
+        "Score 1-5 for accuracy, practical usefulness, structure and plain, concise language "
+        "(5 = excellent, would send as is; 1 = wrong or unusable).\n"
+        'Reply with only JSON: {"score": <1-5>, "reason": "<one sentence>"}\n\n'
+        f"TASK:\n{task['prompt']}\n\nANSWER:\n{answer[:6000]}"
+    )
+    try:
+        r = httpx.post(f"{OMLX_URL}/v1/chat/completions", timeout=300,
+                       headers={"Authorization": f"Bearer {key}"},
+                       json={"model": judge_model, "temperature": 0, "max_tokens": 200,
+                             "messages": [{"role": "user", "content": prompt}]})
+        r.raise_for_status()
+        txt = strip_think(r.json()["choices"][0]["message"]["content"])
+        s = int(json.loads(re.search(r"\{.*\}", txt, re.S).group(0))["score"])
+        return (min(max(s, 1), 5) - 1) / 4
+    except Exception as e:
+        log(f"judge failed on {task['id']}: {e}")
+        return None
+
+
+def score_task(task: dict, out: str, judge_fn=None) -> float:
+    c = task["check"]
+    t = c["type"]
+    if t == "python_tests":
+        return run_tests(extract_code(out), c["tests"])
+    if t == "must_include":
+        return sum(_has(out, x) for x in c["terms"]) / len(c["terms"])
+    if t == "json_equals":
+        body = re.sub(r"^```\w*\s*|\s*```$", "", out.strip())
+        try:
+            return 1.0 if json.loads(body) == c["expected"] else 0.0
+        except Exception:
+            return 0.0
+    if t == "exact_bullets":
+        lines = [x for x in out.strip().splitlines() if x.strip()]
+        return 1.0 if len(lines) == c["count"] and all(x.startswith("- ") for x in lines) else 0.0
+    if t == "rubric":
+        words = len(out.split())
+        length = 1.0 if words <= c["max_words"] else (0.5 if words <= 1.3 * c["max_words"] else 0.0)
+        terms = sum(_has(out, x) for x in c["terms"]) / len(c["terms"])
+        clean = 0.0 if any(b in out.lower() for b in c["banned"]) else 1.0
+        checks = (length + terms + clean) / 3
+        j = judge_fn(task, out) if judge_fn else None
+        return checks if j is None else 0.5 * checks + 0.5 * j
+    raise ValueError(t)
+
+
+def score_model(gen_json: dict, judge_fn=None) -> dict:
+    by_id = {r["id"]: r for r in gen_json["results"]}
+    cats: dict[str, list[float]] = {}
+    per = {}
+    for task in TASKS:
+        s = score_task(task, by_id.get(task["id"], {}).get("output", ""), judge_fn)
+        per[task["id"]] = round(s, 2)
+        cats.setdefault(task["category"], []).append(s)
+    cat_scores = {k: round(100 * sum(v) / len(v), 1) for k, v in cats.items()}
+    overall = round(100 * sum(sum(v) for v in cats.values()) / len(TASKS), 1)
+    return {"repo": gen_json["repo"], "overall": overall, "categories": cat_scores, "tasks": per,
+            "median_tps": gen_json["median_tps"], "peak_memory_gb": gen_json["peak_memory_gb"],
+            "load_seconds": gen_json["load_seconds"]}
+
+
+ROLE_CATEGORY = {"code": "coding", "chat": "architecture"}
+
+
+def verdict(ch: dict, champ: dict, role: str) -> tuple[bool, str]:
+    w = CONFIG["win_rules"]
+    cat = ROLE_CATEGORY[role]
+    gain = ch["categories"].get(cat, 0) - champ["categories"].get(cat, 0)
+    drop = champ["overall"] - ch["overall"]
+    speed = ch["median_tps"] / champ["median_tps"] if champ["median_tps"] else 1.0
+    if gain >= w["role_score_gain"] and drop <= w["max_overall_drop"] and speed >= w["min_speed_ratio"]:
+        return True, f"{cat} +{gain:.0f} points, overall {ch['overall'] - champ['overall']:+.0f}, speed x{speed:.2f}"
+    if abs(ch["overall"] - champ["overall"]) <= w["equal_quality_band"] and speed >= w["faster_ratio_if_equal"]:
+        return True, f"same quality, {speed:.1f}x faster"
+    return False, f"{cat} {gain:+.0f}, overall {ch['overall'] - champ['overall']:+.0f}, speed x{speed:.2f}"
+
+
+def omlx_id(repo: str) -> str:
+    return repo.replace("/", "--")
+
+
+def omlx_key() -> str:
+    try:
+        return json.loads(OMLX_SETTINGS.read_text())["auth"]["api_key"]
+    except Exception:
+        return os.environ.get("OMLX_API_KEY", "")
+
+
+def omlx_ready() -> bool:
+    import httpx
+
+    try:
+        httpx.get(f"{OMLX_URL}/v1/models", headers={"Authorization": f"Bearer {omlx_key()}"},
+                  timeout=3).raise_for_status()
+        return True
+    except Exception:
+        return False
+
+
+def write_scorecard(d: Path, candidates: list[dict], scores: dict, judged: bool) -> list[str]:
+    champs = CONFIG["champions"]
+    lines = [f"# Model scout: {d.name}", ""]
+    if not candidates:
+        lines += ["No new MLX models that fit this month. Champions stay.", ""]
+    wins = []
+    lines += ["| Model | Role | Overall | Coding | Research | Architecture | Format | tok/s | Peak GB | Verdict |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
+    for repo, s in scores.items():
+        role = next((r for r, c in champs.items() if c == repo), None)
+        tag = f"champion ({role})" if role else ""
+        v = ""
+        if not role:
+            m = next((c for c in candidates if c["repo"] == repo), {"role": role_of(repo)})
+            champ = scores.get(champs[m["role"]])
+            if champ:
+                won, why = verdict(s, champ, m["role"])
+                v = ("WIN: " if won else "") + why
+                tag = m["role"]
+                if won:
+                    wins.append(f"{repo} beats the {m['role']} champion ({why})")
+        c = s["categories"]
+        lines.append(f"| {repo} | {tag} | {s['overall']} | {c.get('coding', '')} | {c.get('research', '')} | "
+                     f"{c.get('architecture', '')} | {c.get('format', '')} | {s['median_tps']} | "
+                     f"{s['peak_memory_gb']} | {v} |")
+    lines += ["", "Scores are 0-100. Coding = unit tests pass; research = facts from a passage; "
+              "architecture = rubric checks" + (" + a judge score from the chat champion" if judged else
+                                                " only (judge unavailable)") +
+              "; format = exact output shape.", ""]
+    if wins:
+        lines += ["## Recommended switch", ""] + [f"- {w}" for w in wins] + [
+            "", "To switch, download it in oMLX, then run `CODE_MODEL=<id> ./setup.sh` or "
+                "`CHAT_MODEL=<id> ./setup.sh` with the id oMLX shows, and update `config/scout.json`."]
+    (d / "scorecard.md").write_text("\n".join(lines) + "\n")
+    return wins
+
+
+def run(force_now: bool = False) -> int:
+    d = month_dir()
+    if (d / "scorecard.md").exists() and not force_now:
+        log(f"Already done this month: {d / 'scorecard.md'}")
+        return 0
+    d.mkdir(parents=True, exist_ok=True)
+    log("Discovering new MLX models")
+    try:
+        cands = discover()[: CONFIG["max_challengers"]]
+    except RuntimeError as e:
+        log(str(e))
+        return 1
+    (d / "candidates.json").write_text(json.dumps(cands, indent=2))
+    for c in cands:
+        log(f"  candidate {c['repo']} ({c['role']}, {c['size_gb']} GB)")
+    if not cands:
+        write_scorecard(d, [], {}, False)
+        log("No new candidates")
+        return 0
+
+    roles = sorted({c["role"] for c in cands})
+    models = [CONFIG["champions"][r] for r in roles] + [c["repo"] for c in cands]
+
+    from huggingface_hub import scan_cache_dir
+
+    cached_before = {r.repo_id for r in scan_cache_dir().repos}
+    was_running = omlx_ready()
+    if was_running:
+        log("Stopping oMLX to free memory")
+        subprocess.run([str(OMLX), "stop"], capture_output=True)
+    try:
+        for repo in models:
+            out = d / f"gen-{omlx_id(repo)}.json"
+            if out.exists():
+                continue
+            log(f"Generating with {repo}")
+            r = subprocess.run([sys.executable, __file__, "gen", repo, str(out)])
+            if r.returncode != 0:
+                log(f"  failed: {repo}")
+    finally:
+        if was_running:
+            subprocess.run([str(OMLX), "start"], capture_output=True)
+            for _ in range(120):
+                if omlx_ready():
+                    break
+                time.sleep(2)
+    wins = rescore(d.name)
+    # free disk: remove challengers we downloaded that did not win
+    winners = {w.split(" ")[0] for w in wins}
+    try:
+        cache = scan_cache_dir()
+        drop = [rev.commit_hash for repo in cache.repos
+                if repo.repo_id in {c["repo"] for c in cands} - cached_before - winners
+                for rev in repo.revisions]
+        if drop:
+            cache.delete_revisions(*drop).execute()
+            log(f"Removed {len(drop)} downloaded challenger(s) that did not win")
+    except Exception as e:
+        log(f"cleanup skipped: {e}")
+    seen = seen_models() | {c["repo"] for c in cands}
+    (EVALS / "seen.json").write_text(json.dumps(sorted(seen), indent=2))
+    return 0
+
+
+def rescore(month: str) -> list[str]:
+    d = month_dir(month)
+    cands = json.loads((d / "candidates.json").read_text()) if (d / "candidates.json").exists() else []
+    key = omlx_key()
+    judged = omlx_ready()
+    jmodel = omlx_id(CONFIG["champions"]["chat"])
+    jfn = (lambda task, ans: judge(task, ans, jmodel, key)) if judged else None
+    scores = {}
+    for f in sorted(d.glob("gen-*.json")):
+        g = json.loads(f.read_text())
+        log(f"Scoring {g['repo']}")
+        scores[g["repo"]] = score_model(g, jfn)
+    (d / "scores.json").write_text(json.dumps(scores, indent=2))
+    wins = write_scorecard(d, cands, scores, judged)
+    log(f"Scorecard: {d / 'scorecard.md'}")
+    if wins:
+        notify(f"A new model beats your champion. See ~/.local-ai/evals/{month}/scorecard.md")
+    return wins
+
+
+def auto() -> int:
+    now = dt.datetime.now()
+    if (month_dir() / "scorecard.md").exists():
+        return 0
+    if now.hour < 6:
+        return run()
+    if now.day >= 7:
+        notify("Monthly model check is due. Run scripts/scout.sh run when you step away (about 30-60 min).")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    cmd = argv[0] if argv else "help"
+    if cmd == "discover":
+        for m in discover():
+            print(f"{m['repo']:70} {m['role']:5} {m['size_gb']:5} GB  {m['created']}  dl={m['downloads']}")
+        return 0
+    if cmd == "run":
+        return run(force_now="--force" in argv)
+    if cmd == "auto":
+        return auto()
+    if cmd == "gen":
+        return gen(argv[1], Path(argv[2]))
+    if cmd == "rescore":
+        rescore(argv[1] if len(argv) > 1 else f"{dt.date.today():%Y-%m}")
+        return 0
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

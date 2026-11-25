@@ -63,7 +63,27 @@ Supported files: Markdown, text, PDF, Word, PowerPoint, Excel and HTML. The inde
 
 Then ask Jan or OpenCode things like "search the web for the latest OpenShift AI release and summarise it" or "what do my docs say about ticket enrichment?". Quit and reopen Jan after setup so it loads the new tools.
 
-## Security rules
+## Monthly model scout (Phase 3)
+
+Once a month the scout looks for new open-weight MLX models (mlx-community, lmstudio-community and unsloth) that fit in 30 GB. It tests up to two of them against your champions on a 20-task set (`evals/tasks.json`):
+
+- coding: 8 tasks checked by unit tests
+- research: 4 tasks that answer from a given passage
+- Red Hat and architecture writing: 6 tasks checked by a rubric plus a judge score from the chat champion
+- format: 2 tasks checking exact output shape
+
+It records quality, speed and memory in `~/.local-ai/evals/<month>/scorecard.md`. You get a notification only when a challenger clearly wins; it never switches models by itself. Challengers that lose are deleted again, to save disk.
+
+It runs between 00:00 and 06:00, because it stops oMLX while it tests. If your Mac sleeps through every night, a reminder from day 7 asks you to run it by hand.
+
+```sh
+scripts/scout.sh discover   # what's new, no downloads
+scripts/scout.sh run        # run now (30-60 min)
+scripts/scout.sh last       # latest scorecard
+```
+
+Champions and the win rules live in `config/scout.json`.
+
 
 This repo is public. It holds code and config templates only.
 
